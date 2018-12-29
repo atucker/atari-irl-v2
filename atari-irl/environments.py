@@ -1,18 +1,22 @@
+from typing import NamedTuple
 import pickle
 import numpy as np
 import tensorflow as tf
-from rllab.envs.base import Env
-from rllab.envs.gym_env import convert_gym_space
-from baselines.common.vec_env import VecEnvWrapper
+
+from baselines.common.vec_env import VecEnvWrapper, VecEnv
 from baselines.common.vec_env.vec_normalize import VecNormalize
 from baselines.common.vec_env.vec_frame_stack import VecFrameStack
+from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines.common.atari_wrappers import NoopResetEnv, MaxAndSkipEnv, wrap_deepmind
+from baselines.common import set_global_seeds
+
 from gym.spaces.discrete import Discrete
 from gym import spaces
-from sandbox.rocky.tf.spaces import Box
 import gym
+
 import ple
 import os
+
 
 def one_hot(x, dim):
     assert isinstance(x, list) or len(x.shape) == 1
@@ -21,8 +25,10 @@ def one_hot(x, dim):
         ans[n, i] = 1
     return ans
 
+
 def vec_normalize(env):
     return VecNormalize(env)
+
 
 mujoco_modifiers = {
     'env_modifiers': [],
@@ -246,49 +252,6 @@ def make_const(norm):
     for k, v in norm.__dict__.items():
         if hasattr(v, 'update_from_moments'):
             setattr(norm, k, ConstantStatistics(v))
-
-
-def wrap_action_space(action_space):
-    return Box(0, 1, shape=action_space.n)
-
-
-# Copied from https://github.com/HumanCompatibleAI/population-irl/blob/master/pirl/irl/airl.py
-# this hacks around airl being built on top of rllib, and not using gym
-# environments
-class VecGymEnv(Env):
-    def __init__(self, venv):
-        self.venv = venv
-        self._observation_space = convert_gym_space(venv.observation_space)
-        self._action_space = convert_gym_space(venv.action_space)
-
-    @property
-    def observation_space(self):
-        return self._observation_space
-
-    @property
-    def action_space(self):
-        if isinstance(self._action_space, Box):
-            return self._action_space
-        else:
-            return wrap_action_space(self._action_space)
-
-    def terminate(self):
-        # Normally we'd close environments, but pirl.experiments handles this.
-        pass
-
-    @property
-    def vectorized(self):
-        return True
-
-    def vec_env_executor(self, n_envs, max_path_length):
-        # SOMEDAY: make these parameters have an effect?
-        # We're powerless as the environments have already been created.
-        # But I'm not too bothered by this, as we can tweak them elsewhere.
-        return self.venv
-
-    def reset(self, **kwargs):
-        print("Reset")
-        self.venv.reset(**kwargs)
 
 
 class JustPress1Environment(gym.Env):
@@ -536,3 +499,30 @@ env_mapping = {
     'PLECatcher-v0': atari_modifiers,
     'PLECatcherState-v0': no_modifiers,
 }
+
+
+def make_vec_env(*, env_name: str, seed=0, one_hot_code=False, num_envs=8) -> VecEnv:
+    set_global_seeds(seed)
+
+    env_modifiers = env_mapping[env_name]['env_modifiers']
+    if one_hot_code:
+        env_modifiers = one_hot_wrap_modifiers(env_modifiers)
+
+    def make_env(i):
+        def _thunk():
+            env = gym.make(env_name)
+            env.seed(seed + i)
+            for fn in env_modifiers:
+                env = fn(env)
+            return env
+
+        return _thunk
+
+    base_vec_env = SubprocVecEnv([make_env(i + seed) for i in range(num_envs)])
+
+    vec_env_modifiers = env_mapping[env_name]['vec_env_modifiers']
+    env = base_vec_env
+    for fn in vec_env_modifiers:
+        env = fn(env)
+
+    return env

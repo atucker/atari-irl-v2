@@ -3,6 +3,8 @@ from collections import OrderedDict
 import numpy as np
 import gym
 
+from . import environments
+
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 
 
@@ -182,14 +184,13 @@ class DummyBuffer:
 
 class IRL:
     def __init__(self, args):
-        def make_env(seed):
-            def _thunk():
-                env = gym.make('PongNoFrameskip-v4')
-                env.seed(seed)
-                return env
-            return _thunk
+        self.env = environments.make_vec_env(
+            env_name='PongNoFrameskip-v4',
+            seed=0,
+            one_hot_code=False,
+            num_envs=8
+        )
 
-        self.env = SubprocVecEnv([make_env(i) for i in range(8)])
         self.policy = RandomPolicy(
             obs_space=self.env.observation_space,
             act_space=self.env.action_space
@@ -198,7 +199,6 @@ class IRL:
             env=self.env,
             policy=self.policy
         )
-
 
     def obtain_samples(self):
         return self.sampler.sample_batch(128)
