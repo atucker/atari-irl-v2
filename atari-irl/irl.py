@@ -1,4 +1,4 @@
-from typing import NamedTuple, Tuple, Any, Dict, List
+from typing import NamedTuple, Tuple, Any, Dict, List, Type
 from collections import OrderedDict
 import numpy as np
 import gym
@@ -47,11 +47,11 @@ class PolicyInfo(NamedTuple):
 
 
 class Stacker:
-    def __init__(self, other_cls: NamedTuple) -> None:
+    def __init__(self, other_cls: Type) -> None:
         self.data_cls = other_cls
         self.data = OrderedDict((f, []) for f in self.data_cls._fields)
 
-    def add(self, tup: NamedTuple) -> None:
+    def add(self, tup: Type) -> None:
         assert isinstance(tup, self.data_cls)
         for f in tup._fields:
             self.data[f].append(getattr(tup, f))
@@ -145,8 +145,8 @@ class Sampler:
 
         time_shape = TimeShape((self.num_envs, rollout_t))
 
-        env_info_stacker = Stacker[EnvInfo]()
-        policy_info_stacker = Stacker[PolicyInfo]()
+        env_info_stacker = Stacker(EnvInfo)
+        policy_info_stacker = Stacker(PolicyInfo)
 
         for _ in range(rollout_t):
             policy_step = self.policy.get_actions(self.obs)
