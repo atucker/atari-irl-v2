@@ -3,9 +3,9 @@ from collections import OrderedDict
 import numpy as np
 import gym
 
-from . import environments
-
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
+
+from . import environments
 
 
 class TimeShape(NamedTuple):
@@ -218,6 +218,3 @@ class IRL:
         #buffer  = self.update_buffer(samples)
         #buffer  = self.update_discriminator(buffer)
         #self.update_policy(buffer)
-
-
-IRL(None).train()
