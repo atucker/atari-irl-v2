@@ -17,7 +17,7 @@ class TimeShape(Tuple[int]):
 
 class Observations(NamedTuple):
     time_shape: TimeShape
-    obs: np.ndarray
+    observations: np.ndarray
 
 
 class Actions(NamedTuple):
@@ -51,10 +51,13 @@ class Stacker:
         self.data_cls = other_cls
         self.data = OrderedDict((f, []) for f in self.data_cls._fields)
 
-    def add(self, tup: Type) -> None:
+    def append(self, tup: NamedTuple) -> None:
         assert isinstance(tup, self.data_cls)
         for f in tup._fields:
             self.data[f].append(getattr(tup, f))
+
+    def __getattr__(self, item) -> Any:
+        return self.data[item]
 
 
 class Batch(NamedTuple):
@@ -87,7 +90,7 @@ class Policy:
         self.obs_space = obs_space
         self.act_space = act_space
 
-    def get_actions(self, obs_batch: Observations) -> Tuple[Actions, Any]:
+    def get_actions(self, obs_batch: Observations) -> PolicyInfo:
         raise NotImplemented
 
     def train(self, buffer: Buffer) -> None:
@@ -95,22 +98,22 @@ class Policy:
 
 
 class RandomPolicy(Policy):
-    def get_actions(self, obs: Observations) -> Tuple[Actions, Any]:
+    def get_actions(self, obs: Observations) -> PolicyInfo:
         if len(obs.time_shape) == 1:
-            return Actions(
+            return PolicyInfo(
                 time_shape=obs.time_shape,
                 actions=np.array([
                     self.act_space.sample() for _ in range(obs.time_shape.T)
                 ])
-            ), None
+            )
         elif len(obs.time_shape) == 2:
-            return Actions(
+            return PolicyInfo(
                 time_shape=obs.time_shape,
                 actions=np.array([
                     [self.act_space.sample() for _ in range(obs.time_shape.num_envs)]
                     for _ in range(obs.time_shape.T)
                 ])
-            ), None
+            )
         else:
             raise NotImplemented
 
@@ -143,16 +146,21 @@ class Sampler:
     def sample_batch(self, rollout_t: int, show=False) -> Batch:
         assert self.obs is not None, "Need to call reset"
 
+        time_step  = TimeShape((self.num_envs, 1))
         time_shape = TimeShape((self.num_envs, rollout_t))
 
         env_info_stacker = Stacker(EnvInfo)
         policy_info_stacker = Stacker(PolicyInfo)
 
         for _ in range(rollout_t):
-            policy_step = self.policy.get_actions(self.obs)
+            policy_step = self.policy.get_actions(Observations(
+                time_shape=time_step,
+                observations=self.obs
+            ))
             policy_info_stacker.append(policy_step)
+            actions = policy_step.actions
 
-            self.obs[:], rewards, self.dones, epinfos = self.env.step(policy_step.actions)
+            self.obs[:], rewards, self.dones, epinfos = self.env.step(actions)
             env_info_stacker.append(EnvInfo(
                 time_shape=TimeShape((self.num_envs, 1)),
                 obs=self.obs.copy(),
