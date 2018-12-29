@@ -1,4 +1,4 @@
-from typing import NamedTuple, Tuple, Any, Dict, List, Type
+from typing import NamedTuple, Tuple, Any, Dict, List, Type, Optional
 from collections import OrderedDict
 import numpy as np
 import gym
@@ -6,13 +6,9 @@ import gym
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 
 
-class TimeShape(Tuple[int]):
-    @property
-    def T(self):
-        return self[-1]
-    @property
-    def num_envs(self):
-        return self[-2]
+class TimeShape(NamedTuple):
+    T: Optional[int] = None
+    num_envs: Optional[int] = None
 
 
 class Observations(NamedTuple):
@@ -99,23 +95,14 @@ class Policy:
 
 class RandomPolicy(Policy):
     def get_actions(self, obs: Observations) -> PolicyInfo:
-        if len(obs.time_shape) == 1:
-            return PolicyInfo(
-                time_shape=obs.time_shape,
-                actions=np.array([
-                    self.act_space.sample() for _ in range(obs.time_shape.T)
-                ])
-            )
-        elif len(obs.time_shape) == 2:
-            return PolicyInfo(
-                time_shape=obs.time_shape,
-                actions=np.array([
-                    [self.act_space.sample() for _ in range(obs.time_shape.num_envs)]
-                    for _ in range(obs.time_shape.T)
-                ])
-            )
-        else:
-            raise NotImplemented
+        assert obs.time_shape.T is None
+        assert obs.time_shape.num_envs is not None
+        return PolicyInfo(
+            time_shape=obs.time_shape,
+            actions=np.array([
+                self.act_space.sample() for _ in range(obs.time_shape.num_envs)
+            ])
+        )
 
     def train(self, buffer: Buffer) -> None:
         pass
@@ -146,8 +133,8 @@ class Sampler:
     def sample_batch(self, rollout_t: int, show=False) -> Batch:
         assert self.obs is not None, "Need to call reset"
 
-        time_step  = TimeShape((self.num_envs, 1))
-        time_shape = TimeShape((self.num_envs, rollout_t))
+        time_step  = TimeShape(num_envs=self.num_envs)
+        time_shape = TimeShape(num_envs=self.num_envs, T=rollout_t)
 
         env_info_stacker = Stacker(EnvInfo)
         policy_info_stacker = Stacker(PolicyInfo)
@@ -162,7 +149,7 @@ class Sampler:
 
             self.obs[:], rewards, self.dones, epinfos = self.env.step(actions)
             env_info_stacker.append(EnvInfo(
-                time_shape=TimeShape((self.num_envs, 1)),
+                time_shape=time_step,
                 obs=self.obs.copy(),
                 rewards=rewards,
                 dones=self.dones,
@@ -170,6 +157,7 @@ class Sampler:
             ))
 
         return Batch(
+            time_shape=time_shape,
             env_info=EnvInfo(
                 time_shape=time_shape,
                 obs=np.array(env_info_stacker.obs),
