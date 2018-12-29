@@ -3,6 +3,8 @@ from collections import OrderedDict
 import numpy as np
 import gym
 
+from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
+
 
 class TimeShape(Tuple[int]):
     @property
@@ -184,7 +186,14 @@ class DummyBuffer:
 
 class IRL:
     def __init__(self, args):
-        self.env = gym.make('PongNoFrameskip-v4')
+        def make_env(seed):
+            def _thunk():
+                env = gym.make('PongNoFrameskip-v4')
+                env.seed(seed)
+                return env
+            return _thunk
+
+        self.env = SubprocVecEnv([make_env(i) for i in range(8)])
         self.policy = RandomPolicy(
             obs_space=self.env.observation_space,
             act_space=self.env.action_space
