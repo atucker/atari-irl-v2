@@ -1,4 +1,4 @@
-from typing import NamedTuple, Tuple, Any, Dict, List, Type, Optional
+from typing import NamedTuple, Any, Type
 from collections import OrderedDict
 import numpy as np
 import gym
@@ -6,42 +6,7 @@ import gym
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 
 from . import environments
-
-
-class TimeShape(NamedTuple):
-    T: Optional[int] = None
-    num_envs: Optional[int] = None
-
-
-class Observations(NamedTuple):
-    time_shape: TimeShape
-    observations: np.ndarray
-
-
-class Actions(NamedTuple):
-    time_shape: TimeShape
-    actions: np.ndarray
-
-
-class Rewards(NamedTuple):
-    time_shape: TimeShape
-    rewards: np.ndarray
-
-
-class EnvInfo(NamedTuple):
-    time_shape: TimeShape
-
-    # These come from the gym Environment interface
-    obs: np.ndarray
-    rewards: np.ndarray
-    dones: np.ndarray
-
-    epinfos: List[Dict[str, Any]]
-
-
-class PolicyInfo(NamedTuple):
-    time_shape: TimeShape
-    actions: np.ndarray
+from .types import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Buffer
 
 
 class Stacker:
@@ -58,44 +23,7 @@ class Stacker:
         return self.data[item]
 
 
-class Batch(NamedTuple):
-    time_shape: TimeShape
-    env_info: EnvInfo
-    policy_info: PolicyInfo
-
-    @property
-    def obs(self):
-        return self.env_info.obs
-
-    @property
-    def acts(self):
-        return self.policy_info.actions
-
-    @property
-    def rewards(self):
-        return self.env_info.rewards
-
-
-class Buffer(NamedTuple):
-    time_shape: TimeShape
-    obs: np.ndarray
-    acts: np.ndarray
-    rewards: np.ndarray
-
-
-class Policy:
-    def __init__(self, obs_space: Tuple[int], act_space: gym.Space) -> None:
-        self.obs_space = obs_space
-        self.act_space = act_space
-
-    def get_actions(self, obs_batch: Observations) -> PolicyInfo:
-        raise NotImplemented
-
-    def train(self, buffer: Buffer) -> None:
-        raise NotImplemented
-
-
-class RandomPolicy(Policy):
+class RandomPolicy(PolicyTrainer):
     def get_actions(self, obs: Observations) -> PolicyInfo:
         assert obs.time_shape.T is None
         assert obs.time_shape.num_envs is not None
@@ -110,19 +38,8 @@ class RandomPolicy(Policy):
         pass
 
 
-class RewardModel:
-    def __init__(self, obs_space: Tuple[int], act_space: Tuple[int]) -> None:
-        raise NotImplemented
-
-    def get_rewards(self, batch: Batch) -> np.ndarray:
-        raise NotImplemented
-
-    def train(self, buffer: Buffer) -> None:
-        raise NotImplemented
-
-
 class Sampler:
-    def __init__(self, env: gym.Env, policy: Policy) -> None:
+    def __init__(self, env: gym.Env, policy: PolicyTrainer) -> None:
         self.env = env
         self.num_envs = env.num_envs
         self.policy = policy
