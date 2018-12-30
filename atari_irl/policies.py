@@ -11,6 +11,7 @@ from baselines.common.vec_env import VecEnv
 import baselines.ppo2.model
 import baselines.common.policies
 from baselines.ppo2.ppo2 import safemean, explained_variance
+from baselines.ppo2.runner import sf01
 
 from headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
 
@@ -111,12 +112,12 @@ class PPO2Trainer(PolicyTrainer):
         inds = np.arange(self.nbatch)
         mblossvals = []
 
-        obs = buffer.obs
-        returns = buffer.rewards
-        masks = buffer.dones
-        actions = buffer.acts
-        values = buffer.policy_info.values
-        neglogpacs = buffer.policy_info.neglogpacs
+        obs = sf01(buffer.obs)
+        returns = sf01(buffer.rewards)
+        masks = sf01(buffer.dones)
+        actions = sf01(buffer.acts)
+        values = sf01(buffer.policy_info.values)
+        neglogpacs = sf01(buffer.policy_info.neglogpacs)
         epinfobuf = buffer.env_info.epinfobuf
 
         for _ in range(self.noptepochs):
