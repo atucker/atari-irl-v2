@@ -32,13 +32,14 @@ class EnvInfo(NamedTuple):
     rewards: np.ndarray
     dones: np.ndarray
 
-    epinfobuf: List[Dict[str, Any]]
+    epinfobuf: 'List[Dict[str, Any]]'
 
 
-class PolicyInfo(NamedTuple):
-    time_shape: TimeShape
-    actions: np.ndarray
-
+class PolicyInfo:
+    _fields = ('time_shape', 'actions')
+    def __init__(self, *, time_shape: TimeShape, actions: np.ndarray) -> None:
+        self.time_shape = time_shape
+        self.actions = actions
 
 T = TypeVar('T')
 

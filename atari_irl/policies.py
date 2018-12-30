@@ -12,7 +12,7 @@ import baselines.ppo2.model
 import baselines.common.policies
 from baselines.ppo2.ppo2 import safemean, explained_variance
 
-from headers import PolicyTrainer, PolicyInfo, Observations, Buffer
+from headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
 
 
 class EnvSpec(NamedTuple):
@@ -26,8 +26,17 @@ class EnvSpec(NamedTuple):
 
 
 class PPO2Info(PolicyInfo):
-    values: np.ndarray
-    neglogpacs: np.ndarray
+    _fields = ('time_shape', 'actions', 'values', 'neglogpacs')
+    def __init__(
+        self, *,
+        time_shape: TimeShape,
+        actions: np.ndarray,
+        values: np.ndarray,
+        neglogpacs: np.ndarray
+    ) -> None:
+        super().__init__(time_shape=time_shape, actions=actions)
+        self.values = values
+        self.neglogpacs = neglogpacs
 
 
 class PPO2Trainer(PolicyTrainer):
@@ -80,6 +89,7 @@ class PPO2Trainer(PolicyTrainer):
             M=None
         )
         return PPO2Info(
+            time_shape=obs_batch.time_shape,
             actions=actions,
             values=values,
             neglogpacs=neglogpacs
