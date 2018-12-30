@@ -46,7 +46,7 @@ class PolicyInfo(NamedTuple):
 T = TypeVar('T')
 
 
-class Buffer(NamedTuple, Generic[T]):
+class Buffer(Generic[T]):
     time_shape: TimeShape
 
     policy_info: T
