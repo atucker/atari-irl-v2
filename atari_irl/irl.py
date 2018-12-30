@@ -1,4 +1,4 @@
-from typing import NamedTuple, Any, Type, TypeVar
+from typing import NamedTuple, Any, Type, TypeVar, Generic, TypeVar
 from collections import OrderedDict
 import numpy as np
 import gym
@@ -38,7 +38,6 @@ class RandomPolicy(PolicyTrainer):
     def train(self, buffer: Buffer, i: int) -> None:
         pass
 
-
 class Sampler:
     def __init__(self, env: VecEnv, policy: PolicyTrainer) -> None:
         self.env = env
@@ -52,12 +51,13 @@ class Sampler:
 
     def sample_batch(self, rollout_t: int, show=False) -> Batch:
         assert self.obs is not None, "Need to call reset"
+        assert issubclass(self.policy.info_class, PolicyInfo)
+        
+        env_info_stacker = Stacker(EnvInfo)
+        policy_info_stacker = Stacker(self.policy.info_class)
 
         time_step  = TimeShape(num_envs=self.num_envs)
         time_shape = TimeShape(num_envs=self.num_envs, T=rollout_t)
-
-        env_info_stacker = Stacker(EnvInfo)
-        policy_info_stacker = Stacker(PolicyInfo)
 
         for _ in range(rollout_t):
             policy_step = self.policy.get_actions(Observations(
@@ -73,7 +73,9 @@ class Sampler:
                 obs=self.obs.copy(),
                 rewards=rewards,
                 dones=self.dones,
-                epinfobuf=epinfos
+                epinfobuf=[
+                    info.get('episode') for info in epinfos if info.get('episode')
+                ]
             ))
 
         return Batch(
@@ -83,15 +85,18 @@ class Sampler:
                 obs=np.array(env_info_stacker.obs),
                 rewards=np.array(env_info_stacker.rewards),
                 dones=np.array(env_info_stacker.dones),
-                epinfobuf=[
-                    info.get('episode')
-                    for info in env_info_stacker.epinfos
-                    if info.get('episode')
-                ]
+                epinfobuf=[_ for l in env_info_stacker.epinfobuf for _ in l]
             ),
-            policy_info=PolicyInfo(
+            # TODO(Aaron): Make this a cleaner method, probably of stacker
+            # where each field can define a lambda for how to process it
+            # instead of assuming that we just use np.array
+            policy_info=self.policy.info_class(
                 time_shape=time_shape,
-                actions=np.array(policy_info_stacker.actions)
+                **dict(
+                    (field, np.array(getattr(policy_info_stacker, field)))
+                    for field in self.policy.info_class._fields
+                    if field != 'time_shape'
+                )
             )
         )
 
@@ -101,10 +106,12 @@ T = TypeVar('T')
 
 class DummyBuffer(Buffer[T]):
     def __init__(self):
-        super().__init__()
+        super().__init__(
+            time_shape=None,
+            policy_info=None,
+            env_info=None
+        )
         self.batch = None
-        self.env_info = None
-        self.policy_info = None
 
     def add_batch(self, samples: Batch) -> None:
         self.batch = samples
@@ -145,3 +152,5 @@ class IRL:
                 buffer=self.buffer,
                 itr=i
             )
+
+IRL(None).train()

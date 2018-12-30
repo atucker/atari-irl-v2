@@ -40,6 +40,8 @@ class PPO2Info(PolicyInfo):
 
 
 class PPO2Trainer(PolicyTrainer):
+    info_class = PPO2Info
+    
     def __init__(
             self,
             env: VecEnv,
@@ -112,7 +114,7 @@ class PPO2Trainer(PolicyTrainer):
         obs = buffer.obs
         returns = buffer.rewards
         masks = buffer.dones
-        actions = buffer.actions
+        actions = buffer.acts
         values = buffer.policy_info.values
         neglogpacs = buffer.policy_info.neglogpacs
         epinfobuf = buffer.env_info.epinfobuf

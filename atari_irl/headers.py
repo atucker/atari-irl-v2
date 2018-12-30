@@ -45,10 +45,15 @@ T = TypeVar('T')
 
 
 class Buffer(Generic[T]):
-    time_shape: TimeShape
-
-    policy_info: T
-    env_info: EnvInfo
+    def __init__(
+        self, *, 
+        time_shape: Optional[TimeShape],
+        policy_info: Optional[T],
+        env_info: Optional[EnvInfo]
+    ) -> None:
+        self.time_shape = time_shape
+        self.policy_info = policy_info
+        self.env_info = env_info
 
     @property
     def obs(self):
