@@ -1,13 +1,14 @@
-from typing import NamedTuple, Any, Type
+from typing import NamedTuple, Any, Type, TypeVar
 from collections import OrderedDict
 import numpy as np
 import gym
+from baselines.common.vec_env import VecEnv
 
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 
 from . import environments
 from .types import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer
-
+from .policies import PPO2Trainer, PPO2Info
 
 class Stacker:
     def __init__(self, other_cls: Type) -> None:
@@ -39,7 +40,7 @@ class RandomPolicy(PolicyTrainer):
 
 
 class Sampler:
-    def __init__(self, env: gym.Env, policy: PolicyTrainer) -> None:
+    def __init__(self, env: VecEnv, policy: PolicyTrainer) -> None:
         self.env = env
         self.num_envs = env.num_envs
         self.policy = policy
@@ -95,12 +96,22 @@ class Sampler:
         )
 
 
-class DummyBuffer:
-    def __init__(self):
-        self.batch = None
+T = TypeVar('T')
 
-    def add_batch(self, samples):
+
+class DummyBuffer(Buffer[T]):
+    def __init__(self):
+        super()[T].__init__()
+        self.batch = None
+        self.env_info = None
+        self.policy_info = None
+
+    def add_batch(self, samples: Batch) -> None:
         self.batch = samples
+
+        self.time_shape = samples.time_shape
+        self.env_info = samples.env_info
+        self.policy_info = samples.policy_info
 
 
 class IRL:
@@ -112,9 +123,10 @@ class IRL:
             num_envs=8
         )
 
-        self.policy = RandomPolicy(
-            obs_space=self.env.observation_space,
-            act_space=self.env.action_space
+        self.buffer = DummyBuffer[PPO2Info]()
+        self.policy = PPO2Trainer(
+            env=self.env,
+            network='cnn'
         )
         self.sampler = Sampler(
             env=self.env,
@@ -124,18 +136,12 @@ class IRL:
     def obtain_samples(self):
         return self.sampler.sample_batch(128)
 
-    def update_buffer(self):
-        pass
-
-    def update_policy(self):
-        pass
-
-    def update_discriminator(self):
-        pass
-
     def train(self):
-        samples = self.obtain_samples()
-        import pdb; pdb.set_trace()
-        #buffer  = self.update_buffer(samples)
-        #buffer  = self.update_discriminator(buffer)
-        #self.update_policy(buffer)
+        for i in range(10000):
+            samples = self.obtain_samples()
+            self.buffer.add_batch(samples)
+            #self.update_discriminator(self.buffer)
+            self.policy.train(
+                buffer=self.buffer,
+                itr=i
+            )

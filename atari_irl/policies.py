@@ -33,7 +33,7 @@ class PPO2Info(PolicyInfo):
 class PPO2Trainer(PolicyTrainer):
     def __init__(
             self,
-            env: gym.VecEnv,
+            env: VecEnv,
             network: str,
             **network_kwargs
     ) -> None:
@@ -85,9 +85,9 @@ class PPO2Trainer(PolicyTrainer):
             neglogpacs=neglogpacs
         )
 
-    def train(self, buffer: Buffer[PPO2Info], i: int) -> None:
+    def train(self, buffer: Buffer[PPO2Info], itr: int) -> None:
         tstart = time.time()
-        frac = 1.0 - (i - 1.0) / self.nupdates
+        frac = 1.0 - (itr - 1.0) / self.nupdates
 
         # Calculate the learning rate
         lrnow = self.lr * frac
@@ -126,13 +126,13 @@ class PPO2Trainer(PolicyTrainer):
         tnow = time.time()
         fps = int(self.nbatch / (tnow - tstart))
 
-        if i % self.log_interval == 0 or i == 1:
+        if itr % self.log_interval == 0 or itr == 1:
             # Calculates if value function is a good predictor of the returns (ev > 1)
             # or if it's just worse than predicting nothing (ev =< 0)
             ev = explained_variance(values, returns)
-            logger.logkv("serial_timesteps", i * self.nsteps)
-            logger.logkv("nupdates", i)
-            logger.logkv("total_timesteps", i * self.nbatch)
+            logger.logkv("serial_timesteps", itr * self.nsteps)
+            logger.logkv("nupdates", itr)
+            logger.logkv("total_timesteps", itr * self.nbatch)
             logger.logkv("fps", fps)
             logger.logkv("explained_variance", float(ev))
             logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
@@ -142,9 +142,9 @@ class PPO2Trainer(PolicyTrainer):
             for (lossval, lossname) in zip(lossvals, self.model.loss_names):
                 logger.logkv(lossname, lossval)
 
-        if self.save_interval and (i % self.save_interval == 0 or i == 1) and logger.get_dir():
+        if self.save_interval and (itr % self.save_interval == 0 or itr == 1) and logger.get_dir():
             checkdir = osp.join(logger.get_dir(), 'checkpoints')
             os.makedirs(checkdir, exist_ok=True)
-            savepath = osp.join(checkdir, '%.5i' % i)
+            savepath = osp.join(checkdir, '%.5i' % itr)
             print('Saving to', savepath)
             self.model.save(savepath)

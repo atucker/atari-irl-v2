@@ -1,6 +1,7 @@
 from typing import NamedTuple, Optional, List, Dict, Any, Tuple, Generic, TypeVar
 import numpy as np
 import gym
+from baselines.common.vec_env import VecEnv
 
 class TimeShape(NamedTuple):
     T: Optional[int] = None
@@ -43,13 +44,25 @@ T = TypeVar('T')
 
 class Buffer(NamedTuple, Generic[T]):
     time_shape: TimeShape
-    obs: np.ndarray
-    actions: np.ndarray
-    rewards: np.ndarray
-    dones: np.ndarray
 
     policy_info: T
     env_info: EnvInfo
+
+    @property
+    def obs(self):
+        return self.env_info.obs
+
+    @property
+    def acts(self):
+        return self.policy_info.actions
+
+    @property
+    def rewards(self):
+        return self.env_info.rewards
+
+    @property
+    def dones(self):
+        return self.env_info.dones
 
 
 class Batch(NamedTuple):
@@ -69,16 +82,20 @@ class Batch(NamedTuple):
     def rewards(self):
         return self.env_info.rewards
 
+    @property
+    def dones(self):
+        return self.env_info.dones
+
 
 class PolicyTrainer:
-    def __init__(self, env: gym.VecEnv) -> None:
+    def __init__(self, env: VecEnv) -> None:
         self.obs_space = env.observation_space
         self.act_space = env.action_space
 
     def get_actions(self, obs_batch: Observations) -> PolicyInfo:
         raise NotImplemented
 
-    def train(self, buffer: Buffer, i: int) -> None:
+    def train(self, buffer: Buffer, itr: int) -> None:
         raise NotImplemented
 
 
