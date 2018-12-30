@@ -53,6 +53,8 @@ class PPO2Trainer(PolicyTrainer):
         nenvs = env.num_envs
         total_timesteps = 10e6
 
+        self.gamma = 0.99
+        self.lam = 0.95
         self.lr = 2.5e-4
         self.cliprange = 0.1
         self.nsteps = 128
@@ -62,7 +64,7 @@ class PPO2Trainer(PolicyTrainer):
         self.nbatch_train = self.nbatch // self.nminibatches
         self.nupdates = total_timesteps // self.nbatch
 
-        self.log_interval = 10
+        self.log_interval = 1
         self.save_interval = 0
 
         self.tfirststart = None
@@ -101,24 +103,51 @@ class PPO2Trainer(PolicyTrainer):
     def train(self, buffer: Buffer[PPO2Info], itr: int) -> None:
         tstart = time.time()
         frac = 1.0 - (itr - 1.0) / self.nupdates
+        if itr == 0:
+            self.tfirststart=tstart
 
         # Calculate the learning rate
         lrnow = self.lr * frac
         # Calculate the cliprange
         cliprangenow = self.cliprange * frac
 
-        # Index of each element of batch_size
-        # Create the indices array
-        inds = np.arange(self.nbatch)
-        mblossvals = []
+        
+        # discount/bootstrap off value fn
+        last_values = self.model.value(
+            buffer.sampler_state.obs,
+            S=None,
+            M=buffer.sampler_state.dones
+        )
+        mb_returns = np.zeros_like(buffer.rewards)
+        mb_advs = np.zeros_like(buffer.rewards)
+        lastgaelam = 0
+        for t in reversed(range(self.nsteps)):
+            if t == self.nsteps - 1:
+                nextnonterminal = 1.0 - buffer.sampler_state.dones
+                nextvalues = last_values
+            else:
+                nextnonterminal = 1.0 - buffer.dones[t+1]
+                nextvalues = buffer.policy_info.values[t+1]
+            delta = buffer.rewards[t] + self.gamma * nextvalues * nextnonterminal - buffer.policy_info.values[t]
+            mb_advs[t] = lastgaelam = delta + self.gamma * self.lam * nextnonterminal * lastgaelam
+        mb_returns = mb_advs + buffer.policy_info.values
+
 
         obs = sf01(buffer.obs)
-        returns = sf01(buffer.rewards)
+        returns = sf01(mb_returns)
         masks = sf01(buffer.dones)
         actions = sf01(buffer.acts)
         values = sf01(buffer.policy_info.values)
         neglogpacs = sf01(buffer.policy_info.neglogpacs)
         epinfobuf = buffer.env_info.epinfobuf
+        
+        print(epinfobuf)
+        print(f"Sum dones {np.sum(buffer.dones)}")
+        
+        # Index of each element of batch_size
+        # Create the indices array
+        inds = np.arange(self.nbatch)
+        mblossvals = []
 
         for _ in range(self.noptepochs):
             assert self.nbatch % self.nminibatches == 0
@@ -140,6 +169,8 @@ class PPO2Trainer(PolicyTrainer):
         fps = int(self.nbatch / (tnow - tstart))
 
         if itr % self.log_interval == 0 or itr == 1:
+            print(f"eprewmean {safemean([epinfo['r'] for epinfo in epinfobuf])}")
+            print(f"eplenmean {safemean([epinfo['l'] for epinfo in epinfobuf])}")
             # Calculates if value function is a good predictor of the returns (ev > 1)
             # or if it's just worse than predicting nothing (ev =< 0)
             ev = explained_variance(values, returns)

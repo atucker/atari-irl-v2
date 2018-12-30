@@ -2,13 +2,17 @@ from typing import NamedTuple, Any, Type, TypeVar, Generic, TypeVar
 from collections import OrderedDict
 import numpy as np
 import gym
-from baselines.common.vec_env import VecEnv
 
+from baselines.common.vec_env import VecEnv
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
+from baselines import logger
 
 import environments
 import policies
-from headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer
+from headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer, SamplerState
+
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 
 class Stacker:
     def __init__(self, other_cls: Type) -> None:
@@ -38,16 +42,19 @@ class RandomPolicy(PolicyTrainer):
     def train(self, buffer: Buffer, i: int) -> None:
         pass
 
+    
 class Sampler:
     def __init__(self, env: VecEnv, policy: PolicyTrainer) -> None:
         self.env = env
         self.num_envs = env.num_envs
         self.policy = policy
         self.obs = None
+        self.dones = None
         self.reset()
 
     def reset(self) -> None:
         self.obs = self.env.reset()
+        self.dones = np.zeros(self.num_envs).astype(np.bool)
 
     def sample_batch(self, rollout_t: int, show=False) -> Batch:
         assert self.obs is not None, "Need to call reset"
@@ -66,13 +73,19 @@ class Sampler:
             ))
             policy_info_stacker.append(policy_step)
             actions = policy_step.actions
+            
+            obs_copy = self.obs.copy()
+            dones_copy = self.dones.copy()
 
             self.obs[:], rewards, self.dones, epinfos = self.env.step(actions)
+            if show:
+                self.env.render()
+                
             env_info_stacker.append(EnvInfo(
                 time_shape=time_step,
-                obs=self.obs.copy(),
+                obs=obs_copy,
                 rewards=rewards,
-                dones=self.dones,
+                dones=dones_copy,
                 epinfobuf=[
                     info.get('episode') for info in epinfos if info.get('episode')
                 ]
@@ -80,6 +93,10 @@ class Sampler:
 
         return Batch(
             time_shape=time_shape,
+            sampler_state=SamplerState(
+                obs=self.obs.copy(),
+                dones=self.dones.copy()
+            ),
             env_info=EnvInfo(
                 time_shape=time_shape,
                 obs=np.array(env_info_stacker.obs),
@@ -109,7 +126,8 @@ class DummyBuffer(Buffer[T]):
         super().__init__(
             time_shape=None,
             policy_info=None,
-            env_info=None
+            env_info=None,
+            sampler_state=None
         )
         self.batch = None
 

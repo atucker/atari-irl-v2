@@ -40,6 +40,12 @@ class PolicyInfo:
     def __init__(self, *, time_shape: TimeShape, actions: np.ndarray) -> None:
         self.time_shape = time_shape
         self.actions = actions
+    
+
+class SamplerState(NamedTuple):
+    obs: np.ndarray
+    dones: np.ndarray
+        
 
 T = TypeVar('T')
 
@@ -49,11 +55,13 @@ class Buffer(Generic[T]):
         self, *, 
         time_shape: Optional[TimeShape],
         policy_info: Optional[T],
-        env_info: Optional[EnvInfo]
+        env_info: Optional[EnvInfo],
+        sampler_state: Optional[SamplerState]
     ) -> None:
         self.time_shape = time_shape
         self.policy_info = policy_info
         self.env_info = env_info
+        self.sampler_state = sampler_state
 
     @property
     def obs(self):
@@ -76,6 +84,7 @@ class Batch(NamedTuple):
     time_shape: TimeShape
     env_info: EnvInfo
     policy_info: PolicyInfo
+    sampler_state: SamplerState
 
     @property
     def obs(self):
