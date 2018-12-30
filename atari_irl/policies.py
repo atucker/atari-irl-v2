@@ -12,7 +12,7 @@ import baselines.ppo2.model
 import baselines.common.policies
 from baselines.ppo2.ppo2 import safemean, explained_variance
 
-from .types import PolicyTrainer, PolicyInfo, Observations, Buffer
+from headers import PolicyTrainer, PolicyInfo, Observations, Buffer
 
 
 class EnvSpec(NamedTuple):
@@ -37,7 +37,7 @@ class PPO2Trainer(PolicyTrainer):
             network: str,
             **network_kwargs
     ) -> None:
-        super().__init__()
+        super().__init__(env)
         nenvs = env.num_envs
         total_timesteps = 10e6
 

@@ -1,10 +1,7 @@
-from typing import NamedTuple, Optional, List, Any, Tuple, Generic, TypeVar, TYPE_CHECKING
+from typing import NamedTuple, Optional, Tuple, Generic, TypeVar, Dict, List, Any, TYPE_CHECKING
 import numpy as np
 import gym
 from baselines.common.vec_env import VecEnv
-
-if TYPE_CHECKING:
-    from typing import Dict
 
 
 class TimeShape(NamedTuple):
@@ -35,7 +32,7 @@ class EnvInfo(NamedTuple):
     rewards: np.ndarray
     dones: np.ndarray
 
-    epinfobuf: 'List[Dict[str, Any]]'
+    epinfobuf: List[Dict[str, Any]]
 
 
 class PolicyInfo(NamedTuple):

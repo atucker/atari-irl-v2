@@ -6,9 +6,9 @@ from baselines.common.vec_env import VecEnv
 
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 
-from . import environments
-from .types import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer
-from .policies import PPO2Trainer, PPO2Info
+import environments
+import policies
+from headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer
 
 class Stacker:
     def __init__(self, other_cls: Type) -> None:
@@ -101,7 +101,7 @@ T = TypeVar('T')
 
 class DummyBuffer(Buffer[T]):
     def __init__(self):
-        super()[T].__init__()
+        super().__init__()
         self.batch = None
         self.env_info = None
         self.policy_info = None
@@ -123,8 +123,8 @@ class IRL:
             num_envs=8
         )
 
-        self.buffer = DummyBuffer[PPO2Info]()
-        self.policy = PPO2Trainer(
+        self.buffer = DummyBuffer[policies.PPO2Info]()
+        self.policy = policies.PPO2Trainer(
             env=self.env,
             network='cnn'
         )
