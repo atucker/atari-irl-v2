@@ -1,4 +1,4 @@
-from typing import NamedTuple, Optional, List, Dict, Any, Tuple
+from typing import NamedTuple, Optional, List, Dict, Any, Tuple, Generic, TypeVar
 import numpy as np
 import gym
 
@@ -30,7 +30,7 @@ class EnvInfo(NamedTuple):
     rewards: np.ndarray
     dones: np.ndarray
 
-    epinfos: List[Dict[str, Any]]
+    epinfobuf: List[Dict[str, Any]]
 
 
 class PolicyInfo(NamedTuple):
@@ -38,11 +38,18 @@ class PolicyInfo(NamedTuple):
     actions: np.ndarray
 
 
-class Buffer(NamedTuple):
+T = TypeVar('T')
+
+
+class Buffer(NamedTuple, Generic[T]):
     time_shape: TimeShape
     obs: np.ndarray
-    acts: np.ndarray
+    actions: np.ndarray
     rewards: np.ndarray
+    dones: np.ndarray
+
+    policy_info: T
+    env_info: EnvInfo
 
 
 class Batch(NamedTuple):
@@ -64,14 +71,14 @@ class Batch(NamedTuple):
 
 
 class PolicyTrainer:
-    def __init__(self, obs_space: Tuple[int], act_space: gym.Space) -> None:
-        self.obs_space = obs_space
-        self.act_space = act_space
+    def __init__(self, env: gym.VecEnv) -> None:
+        self.obs_space = env.observation_space
+        self.act_space = env.action_space
 
     def get_actions(self, obs_batch: Observations) -> PolicyInfo:
         raise NotImplemented
 
-    def train(self, buffer: Buffer) -> None:
+    def train(self, buffer: Buffer, i: int) -> None:
         raise NotImplemented
 
 

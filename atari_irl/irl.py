@@ -6,7 +6,7 @@ import gym
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 
 from . import environments
-from .types import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Buffer
+from .types import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer
 
 
 class Stacker:
@@ -34,7 +34,7 @@ class RandomPolicy(PolicyTrainer):
             ])
         )
 
-    def train(self, buffer: Buffer) -> None:
+    def train(self, buffer: Buffer, i: int) -> None:
         pass
 
 
@@ -72,7 +72,7 @@ class Sampler:
                 obs=self.obs.copy(),
                 rewards=rewards,
                 dones=self.dones,
-                epinfos=epinfos
+                epinfobuf=epinfos
             ))
 
         return Batch(
@@ -82,7 +82,11 @@ class Sampler:
                 obs=np.array(env_info_stacker.obs),
                 rewards=np.array(env_info_stacker.rewards),
                 dones=np.array(env_info_stacker.dones),
-                epinfos=[_ for _ in env_info_stacker.epinfos if _]
+                epinfobuf=[
+                    info.get('episode')
+                    for info in env_info_stacker.epinfos
+                    if info.get('episode')
+                ]
             ),
             policy_info=PolicyInfo(
                 time_shape=time_shape,
