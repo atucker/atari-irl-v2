@@ -242,7 +242,7 @@ class QTrainer(PolicyTrainer):
         def make_obs_ph(name):
             return deepq.ObservationInput(observation_space, name=name)
 
-        act, self.train, self.update_target, self.debug = baselines.deepq.build_train(
+        act, self.train_model, self.update_target, self.debug = baselines.deepq.build_train(
             make_obs_ph=make_obs_ph,
             q_func=q_func,
             num_actions=env.action_space.n,
@@ -307,7 +307,7 @@ class QTrainer(PolicyTrainer):
                 np.array(obs_batch.observations)[None],
                 update_eps=update_eps,
                 **kwargs
-            )[0]
+            )
         )
 
     def train(self, buffer: Buffer[QInfo], itr: int) -> None:
@@ -319,7 +319,7 @@ class QTrainer(PolicyTrainer):
             buffer.obs,
             buffer.acts,
             buffer.rewards,
-            buffer.new_obs,
+            buffer.next_obs,
             buffer.dones
         )
 
@@ -327,7 +327,7 @@ class QTrainer(PolicyTrainer):
             # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
             obses_t, actions, rewards, obses_tp1, dones = self.replay_buffer.sample(self.batch_size)
             weights, batch_idxes = np.ones_like(rewards), None
-            td_errors = self.train(obses_t, actions, rewards, obses_tp1, dones, weights)
+            td_errors = self.train_model(obses_t, actions, rewards, obses_tp1, dones, weights)
 
         if t > self.learning_starts and t % self.target_network_update_freq == 0:
             # Update target network periodically.

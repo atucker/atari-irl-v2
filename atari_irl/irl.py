@@ -152,8 +152,8 @@ class IRL:
             num_envs=8
         )
 
-        self.buffer = DummyBuffer[policies.PPO2Info]()
-        self.policy = policies.PPO2Trainer(
+        self.buffer = DummyBuffer[policies.QInfo]()
+        self.policy = policies.QTrainer(
             env=self.env,
             network='cnn'
         )
@@ -163,7 +163,7 @@ class IRL:
         )
 
     def obtain_samples(self):
-        return self.sampler.sample_batch(128)
+        return self.sampler.sample_batch(4)
 
     def train(self):
         logger.configure()
