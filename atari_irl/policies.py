@@ -9,12 +9,19 @@ from collections import deque
 
 from baselines import logger
 from baselines.common.vec_env import VecEnv
-import baselines.ppo2.model
 import baselines.common.policies
+
+import baselines.ppo2.model
 from baselines.ppo2.ppo2 import safemean, explained_variance
 from baselines.ppo2.runner import sf01
 
-from headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
+import baselines.deepq
+from baselines.deepq import deepq
+import baselines.common.tf_util as U
+
+import tensorflow as tf
+
+from .headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
 
 
 class EnvSpec(NamedTuple):
@@ -191,3 +198,135 @@ class PPO2Trainer(PolicyTrainer):
             savepath = osp.join(checkdir, '%.5i' % itr)
             print('Saving to', savepath)
             self.model.save(savepath)
+
+class QInfo(PolicyInfo):
+    _fields = ('time_shape', 'actions')
+
+    def __init__(
+            self, *,
+            time_shape: TimeShape,
+            actions: np.ndarray
+    ) -> None:
+        super().__init__(time_shape=time_shape, actions=actions)
+
+class QTrainer(PolicyTrainer):
+    info_class = QInfo
+
+    def __init__(
+            self,
+            env: VecEnv,
+            network: str,
+            **network_kwargs
+    ) -> None:
+        super().__init__(env)
+        q_func = deepq.build_q_func(network, **network_kwargs)
+
+        lr = 5e-4
+        gamma = 1.0
+
+        buffer_size = 50000
+        exploration_fraction = 0.1
+        exploration_final_eps = 0.02
+        total_timesteps = 100000
+
+        self.param_noise = False
+        self.learning_starts = 1000
+        self.train_freq = 1
+        self.batch_size = 32
+        self.target_network_update_freq = 500
+
+        observation_space = env.observation_space
+
+        def make_obs_ph(name):
+            return deepq.ObservationInput(observation_space, name=name)
+
+        act, self.train, self.update_target, self.debug = baselines.deepq.build_train(
+            make_obs_ph=make_obs_ph,
+            q_func=q_func,
+            num_actions=env.action_space.n,
+            optimizer=tf.train.AdamOptimizer(learning_rate=lr),
+            gamma=gamma,
+            grad_norm_clipping=10,
+            param_noise=self.param_noise
+        )
+
+        act_params = {
+            'make_obs_ph': make_obs_ph,
+            'q_func': q_func,
+            'num_actions': env.action_space.n,
+        }
+
+        self.act = deepq.ActWrapper(act, act_params)
+
+        # Create the replay buffer
+        self.replay_buffer = deepq.ReplayBuffer(buffer_size)
+        self.beta_schedule = None
+
+        # Create the schedule for exploration starting from 1.
+        self.exploration = deepq.LinearSchedule(
+            schedule_timesteps=int(exploration_fraction * total_timesteps),
+            initial_p=1.0,
+            final_p=exploration_final_eps
+        )
+
+        U.initialize()
+        self.update_target()
+
+
+        episode_rewards = [0.0]
+        saved_mean_reward = None
+        obs = env.reset()
+        self.reset = True
+
+        self.action_space = env.action_space
+        self.t = 0
+
+    def get_actions(self, obs_batch: Observations) -> QInfo:
+        # Take action and update exploration to the newest value
+        kwargs = {}
+        if not self.param_noise:
+            update_eps = self.exploration.value(self.t)
+            update_param_noise_threshold = 0.
+        else:
+            update_eps = 0.
+            # Compute the threshold such that the KL divergence between perturbed and non-perturbed
+            # policy is comparable to eps-greedy exploration with eps = exploration.value(t).
+            # See Appendix C.1 in Parameter Space Noise for Exploration, Plappert et al., 2017
+            # for detailed explanation.
+            update_param_noise_threshold = -np.log(
+                1. - self.exploration.value(self.t) + self.exploration.value(self.t) / float(self.action_space.n))
+            kwargs['reset'] = self.reset
+            kwargs['update_param_noise_threshold'] = update_param_noise_threshold
+            kwargs['update_param_noise_scale'] = True
+
+        return QInfo(
+            time_shape=obs_batch.time_shape,
+            actions=self.act(
+                np.array(obs_batch.observations)[None],
+                update_eps=update_eps,
+                **kwargs
+            )[0]
+        )
+
+    def train(self, buffer: Buffer[QInfo], itr: int) -> None:
+        t = itr
+
+        self.reset = buffer.dones
+
+        self.replay_buffer.add(
+            buffer.obs,
+            buffer.acts,
+            buffer.rewards,
+            buffer.new_obs,
+            buffer.dones
+        )
+
+        if t > self.learning_starts and t % self.train_freq == 0:
+            # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
+            obses_t, actions, rewards, obses_tp1, dones = self.replay_buffer.sample(self.batch_size)
+            weights, batch_idxes = np.ones_like(rewards), None
+            td_errors = self.train(obses_t, actions, rewards, obses_tp1, dones, weights)
+
+        if t > self.learning_starts and t % self.target_network_update_freq == 0:
+            # Update target network periodically.
+            self.update_target()
