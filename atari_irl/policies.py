@@ -199,6 +199,7 @@ class PPO2Trainer(PolicyTrainer):
             print('Saving to', savepath)
             self.model.save(savepath)
 
+
 class QInfo(PolicyInfo):
     _fields = ('time_shape', 'actions')
 
@@ -208,6 +209,7 @@ class QInfo(PolicyInfo):
             actions: np.ndarray
     ) -> None:
         super().__init__(time_shape=time_shape, actions=actions)
+
 
 class QTrainer(PolicyTrainer):
     info_class = QInfo

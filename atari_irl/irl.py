@@ -14,6 +14,7 @@ from headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer,
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 
+
 class Stacker:
     def __init__(self, other_cls: Type) -> None:
         self.data_cls = other_cls
@@ -84,6 +85,7 @@ class Sampler:
             env_info_stacker.append(EnvInfo(
                 time_shape=time_step,
                 obs=obs_copy,
+                next_obs=self.obs.copy(),
                 rewards=rewards,
                 dones=dones_copy,
                 epinfobuf=[
@@ -100,6 +102,7 @@ class Sampler:
             env_info=EnvInfo(
                 time_shape=time_shape,
                 obs=np.array(env_info_stacker.obs),
+                next_obs=np.array(env_info_stacker.next_obs),
                 rewards=np.array(env_info_stacker.rewards),
                 dones=np.array(env_info_stacker.dones),
                 epinfobuf=[_ for l in env_info_stacker.epinfobuf for _ in l]

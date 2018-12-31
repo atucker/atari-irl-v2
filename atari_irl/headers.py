@@ -31,6 +31,7 @@ class EnvInfo(NamedTuple):
     obs: np.ndarray
     rewards: np.ndarray
     dones: np.ndarray
+    next_obs: np.ndarray
 
     epinfobuf: 'List[Dict[str, Any]]'
 
@@ -68,6 +69,10 @@ class Buffer(Generic[T]):
         return self.env_info.obs
 
     @property
+    def next_obs(self):
+        return self.env_info.next_obs
+
+    @property
     def acts(self):
         return self.policy_info.actions
 
@@ -89,6 +94,10 @@ class Batch(NamedTuple):
     @property
     def obs(self):
         return self.env_info.obs
+
+    @property
+    def next_obs(self):
+        return self.env_info.next_obs
 
     @property
     def acts(self):
