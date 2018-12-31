@@ -5,6 +5,7 @@ import numpy as np
 import time
 import os
 import os.path as osp
+from collections import deque
 
 from baselines import logger
 from baselines.common.vec_env import VecEnv
@@ -84,6 +85,7 @@ class PPO2Trainer(PolicyTrainer):
             vf_coef=0.5,
             max_grad_norm=0.5
         )
+        self.eval_epinfobuf = deque(maxlen=100)
 
     def get_actions(self, obs_batch: Observations) -> PPO2Info:
         actions, values, _, neglogpacs = self.model.step(
@@ -132,17 +134,13 @@ class PPO2Trainer(PolicyTrainer):
             mb_advs[t] = lastgaelam = delta + self.gamma * self.lam * nextnonterminal * lastgaelam
         mb_returns = mb_advs + buffer.policy_info.values
 
-
         obs = sf01(buffer.obs)
         returns = sf01(mb_returns)
         masks = sf01(buffer.dones)
         actions = sf01(buffer.acts)
         values = sf01(buffer.policy_info.values)
         neglogpacs = sf01(buffer.policy_info.neglogpacs)
-        epinfobuf = buffer.env_info.epinfobuf
-        
-        print(epinfobuf)
-        print(f"Sum dones {np.sum(buffer.dones)}")
+        self.eval_epinfobuf.extend(buffer.env_info.epinfobuf)
         
         # Index of each element of batch_size
         # Create the indices array
@@ -168,9 +166,8 @@ class PPO2Trainer(PolicyTrainer):
         tnow = time.time()
         fps = int(self.nbatch / (tnow - tstart))
 
+        epinfobuf = self.eval_epinfobuf
         if itr % self.log_interval == 0 or itr == 1:
-            print(f"eprewmean {safemean([epinfo['r'] for epinfo in epinfobuf])}")
-            print(f"eplenmean {safemean([epinfo['l'] for epinfo in epinfobuf])}")
             # Calculates if value function is a good predictor of the returns (ev > 1)
             # or if it's just worse than predicting nothing (ev =< 0)
             ev = explained_variance(values, returns)
@@ -185,6 +182,8 @@ class PPO2Trainer(PolicyTrainer):
             logger.logkv('time_elapsed', tnow - self.tfirststart)
             for (lossval, lossname) in zip(lossvals, self.model.loss_names):
                 logger.logkv(lossname, lossval)
+                
+            logger.dumpkvs()
 
         if self.save_interval and (itr % self.save_interval == 0 or itr == 1) and logger.get_dir():
             checkdir = osp.join(logger.get_dir(), 'checkpoints')

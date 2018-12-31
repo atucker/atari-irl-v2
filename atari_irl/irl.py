@@ -137,6 +137,7 @@ class DummyBuffer(Buffer[T]):
         self.time_shape = samples.time_shape
         self.env_info = samples.env_info
         self.policy_info = samples.policy_info
+        self.sampler_state = samples.sampler_state
 
 
 class IRL:
@@ -162,7 +163,9 @@ class IRL:
         return self.sampler.sample_batch(128)
 
     def train(self):
+        logger.configure()
         for i in range(10000):
+            print(i)
             samples = self.obtain_samples()
             self.buffer.add_batch(samples)
             #self.update_discriminator(self.buffer)

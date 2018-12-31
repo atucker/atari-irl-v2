@@ -3,12 +3,14 @@ import pickle
 import numpy as np
 import tensorflow as tf
 
+from baselines.bench import Monitor
 from baselines.common.vec_env import VecEnvWrapper, VecEnv
 from baselines.common.vec_env.vec_normalize import VecNormalize
 from baselines.common.vec_env.vec_frame_stack import VecFrameStack
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines.common.atari_wrappers import NoopResetEnv, MaxAndSkipEnv, wrap_deepmind
 from baselines.common import set_global_seeds
+from baselines import logger
 
 from gym.spaces.discrete import Discrete
 from gym import spaces
@@ -511,6 +513,8 @@ def make_vec_env(*, env_name: str, seed=0, one_hot_code=False, num_envs=8) -> Ve
     def make_env(i):
         def _thunk():
             env = gym.make(env_name)
+            logger_path = logger.get_dir()
+            env = Monitor(env, logger_path, allow_early_resets=True)
             env.seed(seed + i)
             for fn in env_modifiers:
                 env = fn(env)
