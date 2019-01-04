@@ -1,11 +1,12 @@
 from typing import NamedTuple, Any, Type, TypeVar, Generic, TypeVar
-from collections import OrderedDict
+from collections import OrderedDict, deque
 import numpy as np
 import gym
 
 from baselines.common.vec_env import VecEnv
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines import logger
+from baselines.ppo2.ppo2 import safemean
 
 import environments
 import policies
@@ -88,6 +89,7 @@ class Sampler:
                 next_obs=self.obs.copy(),
                 rewards=rewards,
                 dones=dones_copy,
+                next_dones=self.dones.copy(),
                 epinfobuf=[
                     info.get('episode') for info in epinfos if info.get('episode')
                 ]
@@ -105,6 +107,7 @@ class Sampler:
                 next_obs=np.array(env_info_stacker.next_obs),
                 rewards=np.array(env_info_stacker.rewards),
                 dones=np.array(env_info_stacker.dones),
+                next_dones=np.array(env_info_stacker.next_dones),
                 epinfobuf=[_ for l in env_info_stacker.epinfobuf for _ in l]
             ),
             # TODO(Aaron): Make this a cleaner method, probably of stacker
@@ -146,35 +149,53 @@ class DummyBuffer(Buffer[T]):
 class IRL:
     def __init__(self, args):
         self.env = environments.make_vec_env(
-            env_name='PongNoFrameskip-v4',
+            env_name='CartPole-v1',
             seed=0,
             one_hot_code=False,
-            num_envs=8
+            num_envs=1
         )
 
         self.buffer = DummyBuffer[policies.QInfo]()
         self.policy = policies.QTrainer(
             env=self.env,
-            network='cnn'
+            network='mlp'
         )
         self.sampler = Sampler(
             env=self.env,
             policy=self.policy
         )
+        
+        self.eval_epinfobuf = deque(maxlen=100)
+        self.total_episodes = 0
+        self.batch_t = 1
 
     def obtain_samples(self):
-        return self.sampler.sample_batch(4)
+        batch = self.sampler.sample_batch(self.batch_t)
+        self.total_episodes += len(batch.env_info.epinfobuf)
+        self.eval_epinfobuf.extend(batch.env_info.epinfobuf)
+        return batch
+        
+    def log_performance(self, i):
+        logger.logkv('itr', i)
+        logger.logkv('cumulative episodes', self.total_episodes)
+        logger.logkv('timesteps covered', i * self.env.num_envs * self.batch_t)
+        logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in self.eval_epinfobuf]))
+        logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in self.eval_epinfobuf]))
+        logger.dumpkvs()
 
     def train(self):
+        log_freq = 100
         logger.configure()
-        for i in range(10000):
-            print(i)
+        for i in range(int(100000)):
             samples = self.obtain_samples()
             self.buffer.add_batch(samples)
             #self.update_discriminator(self.buffer)
             self.policy.train(
                 buffer=self.buffer,
-                itr=i
+                itr=i,
+                log_freq=log_freq
             )
+            if i % log_freq == 0:
+                self.log_performance(i)
 
 IRL(None).train()

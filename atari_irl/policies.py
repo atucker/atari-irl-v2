@@ -92,7 +92,6 @@ class PPO2Trainer(PolicyTrainer):
             vf_coef=0.5,
             max_grad_norm=0.5
         )
-        self.eval_epinfobuf = deque(maxlen=100)
 
     def get_actions(self, obs_batch: Observations) -> PPO2Info:
         actions, values, _, neglogpacs = self.model.step(
@@ -109,7 +108,7 @@ class PPO2Trainer(PolicyTrainer):
             neglogpacs=neglogpacs
         )
 
-    def train(self, buffer: Buffer[PPO2Info], itr: int) -> None:
+    def train(self, buffer: Buffer[PPO2Info], itr: int, log_freq=1000) -> None:
         tstart = time.time()
         frac = 1.0 - (itr - 1.0) / self.nupdates
         if itr == 0:
@@ -147,7 +146,6 @@ class PPO2Trainer(PolicyTrainer):
         actions = sf01(buffer.acts)
         values = sf01(buffer.policy_info.values)
         neglogpacs = sf01(buffer.policy_info.neglogpacs)
-        self.eval_epinfobuf.extend(buffer.env_info.epinfobuf)
         
         # Index of each element of batch_size
         # Create the indices array
@@ -173,8 +171,7 @@ class PPO2Trainer(PolicyTrainer):
         tnow = time.time()
         fps = int(self.nbatch / (tnow - tstart))
 
-        epinfobuf = self.eval_epinfobuf
-        if itr % self.log_interval == 0 or itr == 1:
+        if itr % log_freq == 0 or itr == 1:
             # Calculates if value function is a good predictor of the returns (ev > 1)
             # or if it's just worse than predicting nothing (ev =< 0)
             ev = explained_variance(values, returns)
@@ -183,14 +180,9 @@ class PPO2Trainer(PolicyTrainer):
             logger.logkv("total_timesteps", itr * self.nbatch)
             logger.logkv("fps", fps)
             logger.logkv("explained_variance", float(ev))
-            logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
-            logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
-
             logger.logkv('time_elapsed', tnow - self.tfirststart)
             for (lossval, lossname) in zip(lossvals, self.model.loss_names):
                 logger.logkv(lossname, lossval)
-                
-            logger.dumpkvs()
 
         if self.save_interval and (itr % self.save_interval == 0 or itr == 1) and logger.get_dir():
             checkdir = osp.join(logger.get_dir(), 'checkpoints')
@@ -201,14 +193,16 @@ class PPO2Trainer(PolicyTrainer):
 
 
 class QInfo(PolicyInfo):
-    _fields = ('time_shape', 'actions')
+    _fields = ('time_shape', 'actions', 'explore_frac')
 
     def __init__(
             self, *,
             time_shape: TimeShape,
-            actions: np.ndarray
+            actions: np.ndarray,
+            explore_frac: float
     ) -> None:
         super().__init__(time_shape=time_shape, actions=actions)
+        self.explore_frac = explore_frac
 
 
 class QTrainer(PolicyTrainer):
@@ -229,13 +223,14 @@ class QTrainer(PolicyTrainer):
         buffer_size = 50000
         exploration_fraction = 0.1
         exploration_final_eps = 0.02
-        total_timesteps = 100000
-
+        
+        self.total_timesteps = 100000
         self.param_noise = False
         self.learning_starts = 1000
         self.train_freq = 1
         self.batch_size = 32
         self.target_network_update_freq = 500
+        self.prioritized_replay = False
 
         observation_space = env.observation_space
 
@@ -266,7 +261,7 @@ class QTrainer(PolicyTrainer):
 
         # Create the schedule for exploration starting from 1.
         self.exploration = deepq.LinearSchedule(
-            schedule_timesteps=int(exploration_fraction * total_timesteps),
+            schedule_timesteps=int(exploration_fraction * self.total_timesteps),
             initial_p=1.0,
             final_p=exploration_final_eps
         )
@@ -274,32 +269,15 @@ class QTrainer(PolicyTrainer):
         U.initialize()
         self.update_target()
 
-
-        episode_rewards = [0.0]
-        saved_mean_reward = None
-        obs = env.reset()
-        self.reset = True
-
         self.action_space = env.action_space
         self.t = 0
+        self.env = env
 
     def get_actions(self, obs_batch: Observations) -> QInfo:
         # Take action and update exploration to the newest value
         kwargs = {}
-        if not self.param_noise:
-            update_eps = self.exploration.value(self.t)
-            update_param_noise_threshold = 0.
-        else:
-            update_eps = 0.
-            # Compute the threshold such that the KL divergence between perturbed and non-perturbed
-            # policy is comparable to eps-greedy exploration with eps = exploration.value(t).
-            # See Appendix C.1 in Parameter Space Noise for Exploration, Plappert et al., 2017
-            # for detailed explanation.
-            update_param_noise_threshold = -np.log(
-                1. - self.exploration.value(self.t) + self.exploration.value(self.t) / float(self.action_space.n))
-            kwargs['reset'] = self.reset
-            kwargs['update_param_noise_threshold'] = update_param_noise_threshold
-            kwargs['update_param_noise_scale'] = True
+        update_eps = self.exploration.value(self.t)
+        update_param_noise_threshold = 0.
 
         return QInfo(
             time_shape=obs_batch.time_shape,
@@ -307,22 +285,23 @@ class QTrainer(PolicyTrainer):
                 np.array(obs_batch.observations)[None],
                 update_eps=update_eps,
                 **kwargs
-            )
+            ),
+            explore_frac = update_eps
         )
 
-    def train(self, buffer: Buffer[QInfo], itr: int) -> None:
+    def train(self, buffer: Buffer[QInfo], itr: int, log_freq=1000) -> None:
+        assert itr == self.t
         t = itr
-
-        self.reset = buffer.dones
-
-        self.replay_buffer.add(
-            buffer.obs,
-            buffer.acts,
-            buffer.rewards,
-            buffer.next_obs,
-            buffer.dones
-        )
-
+        for buffer_t in range(buffer.time_shape.T):
+            for e in range(buffer.time_shape.num_envs):
+                self.replay_buffer.add(
+                    buffer.obs[buffer_t, e],
+                    buffer.acts[buffer_t, e],
+                    buffer.rewards[buffer_t, e],
+                    buffer.next_obs[buffer_t, e],
+                    float(buffer.next_dones[buffer_t, e])
+                )
+        
         if t > self.learning_starts and t % self.train_freq == 0:
             # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
             obses_t, actions, rewards, obses_tp1, dones = self.replay_buffer.sample(self.batch_size)
@@ -332,3 +311,8 @@ class QTrainer(PolicyTrainer):
         if t > self.learning_starts and t % self.target_network_update_freq == 0:
             # Update target network periodically.
             self.update_target()
+            
+        if itr % log_freq == 0:
+            logger.logkv('"% time spent exploring"', int(100 * buffer.policy_info.explore_frac[0]))
+            
+        self.t += 1

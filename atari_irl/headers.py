@@ -32,6 +32,7 @@ class EnvInfo(NamedTuple):
     rewards: np.ndarray
     dones: np.ndarray
     next_obs: np.ndarray
+    next_dones: np.ndarray
 
     epinfobuf: 'List[Dict[str, Any]]'
 
@@ -82,6 +83,10 @@ class Buffer(Generic[T]):
 
     @property
     def dones(self):
+        return self.env_info.dones
+    
+    @property
+    def next_dones(self):
         return self.env_info.dones
 
 
