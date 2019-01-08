@@ -4,7 +4,6 @@ import numpy as np
 import gym
 
 from baselines.common.vec_env import VecEnv
-from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines import logger
 from baselines.ppo2.ppo2 import safemean
 
@@ -13,21 +12,7 @@ import policies
 from headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer, SamplerState
 
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
-
-
-class Stacker:
-    def __init__(self, other_cls: Type) -> None:
-        self.data_cls = other_cls
-        self.data = OrderedDict((f, []) for f in self.data_cls._fields)
-
-    def append(self, tup: NamedTuple) -> None:
-        assert isinstance(tup, self.data_cls)
-        for f in tup._fields:
-            self.data[f].append(getattr(tup, f))
-
-    def __getattr__(self, item) -> Any:
-        return self.data[item]
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 class RandomPolicy(PolicyTrainer):
@@ -189,12 +174,12 @@ class IRL:
         for i in range(int(100000)):
             samples = self.obtain_samples()
             self.buffer.add_batch(samples)
-            #self.update_discriminator(self.buffer)
             self.policy.train(
                 buffer=self.buffer,
                 itr=i,
                 log_freq=log_freq
             )
+            self.update_discriminator(itr=i)
             if i % log_freq == 0:
                 self.log_performance(i)
 

@@ -1,4 +1,6 @@
-from typing import NamedTuple, Optional, Tuple, Generic, TypeVar, Dict, List, Any, TYPE_CHECKING
+from typing import NamedTuple, Optional, Tuple, Generic, TypeVar, Dict, List, \
+    Any, TYPE_CHECKING, Type
+from collections import OrderedDict
 import numpy as np
 import gym
 from baselines.common.vec_env import VecEnv
@@ -138,3 +140,21 @@ class RewardModelTrainer:
 
     def train(self, buffer: Buffer) -> None:
         raise NotImplemented
+
+
+class Stacker:
+    def __init__(self, other_cls: Type) -> None:
+        self.data_cls = other_cls
+        self.data = OrderedDict((f, []) for f in self.data_cls._fields)
+
+    def append(self, tup: NamedTuple) -> None:
+        assert isinstance(tup, self.data_cls)
+        for f in tup._fields:
+            self.data[f].append(getattr(tup, f))
+
+    def __getattr__(self, item) -> Any:
+        return self.data[item]
+
+    def reset(self) -> None:
+        for f in self.data.keys():
+            self.data[f] = []
