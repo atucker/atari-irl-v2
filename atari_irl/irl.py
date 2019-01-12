@@ -8,9 +8,8 @@ from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines import logger
 from baselines.ppo2.ppo2 import safemean
 
-import environments
-import policies
-from headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer, SamplerState
+from . import environments, policies
+from .headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer, SamplerState
 
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
@@ -198,4 +197,5 @@ class IRL:
             if i % log_freq == 0:
                 self.log_performance(i)
 
-IRL(None).train()
+if __name__ == '__main__':
+    IRL(None).train()

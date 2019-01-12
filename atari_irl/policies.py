@@ -21,7 +21,7 @@ import baselines.common.tf_util as U
 
 import tensorflow as tf
 
-from headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
+from .headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
 
 
 class EnvSpec(NamedTuple):
