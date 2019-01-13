@@ -7,9 +7,9 @@ from baselines.common.vec_env import VecEnv
 from baselines import logger
 from baselines.ppo2.ppo2 import safemean
 
-import environments
-import policies
-from headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer, SamplerState
+from . import environments, policies, buffers
+from .headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer, SamplerState
+from .utils import Stacker
 
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -28,7 +28,7 @@ class RandomPolicy(PolicyTrainer):
 
     def train(self, buffer: Buffer, i: int) -> None:
         pass
-
+    
     
 class Sampler:
     def __init__(self, env: VecEnv, policy: PolicyTrainer) -> None:
@@ -109,28 +109,6 @@ class Sampler:
         )
 
 
-T = TypeVar('T')
-
-
-class DummyBuffer(Buffer[T]):
-    def __init__(self):
-        super().__init__(
-            time_shape=None,
-            policy_info=None,
-            env_info=None,
-            sampler_state=None
-        )
-        self.batch = None
-
-    def add_batch(self, samples: Batch) -> None:
-        self.batch = samples
-
-        self.time_shape = samples.time_shape
-        self.env_info = samples.env_info
-        self.policy_info = samples.policy_info
-        self.sampler_state = samples.sampler_state
-
-
 class IRL:
     def __init__(self, args):
         self.env = environments.make_vec_env(
@@ -140,7 +118,7 @@ class IRL:
             num_envs=1
         )
 
-        self.buffer = DummyBuffer[policies.QInfo]()
+        self.buffer = buffers.FlatBuffer[policies.QInfo](policies.QInfo)
         self.policy = policies.QTrainer(
             env=self.env,
             network='mlp'
@@ -183,4 +161,6 @@ class IRL:
             if i % log_freq == 0:
                 self.log_performance(i)
 
-IRL(None).train()
+
+if __name__ == '__main__':
+    IRL(None).train()

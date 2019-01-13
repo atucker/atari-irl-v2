@@ -21,7 +21,7 @@ import baselines.common.tf_util as U
 
 import tensorflow as tf
 
-from headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
+from .headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
 
 
 class EnvSpec(NamedTuple):
@@ -256,7 +256,6 @@ class QTrainer(PolicyTrainer):
         self.act = deepq.ActWrapper(act, act_params)
 
         # Create the replay buffer
-        self.replay_buffer = deepq.ReplayBuffer(buffer_size)
         self.beta_schedule = None
 
         # Create the schedule for exploration starting from 1.
@@ -286,25 +285,20 @@ class QTrainer(PolicyTrainer):
                 update_eps=update_eps,
                 **kwargs
             ),
-            explore_frac = update_eps
+            explore_frac = [update_eps]
         )
 
     def train(self, buffer: Buffer[QInfo], itr: int, log_freq=1000) -> None:
         assert itr == self.t
         t = itr
-        for buffer_t in range(buffer.time_shape.T):
-            for e in range(buffer.time_shape.num_envs):
-                self.replay_buffer.add(
-                    buffer.obs[buffer_t, e],
-                    buffer.acts[buffer_t, e],
-                    buffer.rewards[buffer_t, e],
-                    buffer.next_obs[buffer_t, e],
-                    float(buffer.next_dones[buffer_t, e])
-                )
         
         if t > self.learning_starts and t % self.train_freq == 0:
             # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
-            obses_t, actions, rewards, obses_tp1, dones = self.replay_buffer.sample(self.batch_size)
+            obses_t, actions, rewards, obses_tp1, dones = buffer.sample_batch(
+                'obs', 'acts', 'rewards', 'next_obs', 'next_dones',
+                batch_size=self.batch_size
+            )
+
             weights, batch_idxes = np.ones_like(rewards), None
             td_errors = self.train_model(obses_t, actions, rewards, obses_tp1, dones, weights)
 
@@ -313,6 +307,6 @@ class QTrainer(PolicyTrainer):
             self.update_target()
             
         if itr % log_freq == 0:
-            logger.logkv('"% time spent exploring"', int(100 * buffer.policy_info.explore_frac[0]))
+            logger.logkv('"% time spent exploring"', int(100 * buffer.policy_info.explore_frac[-1]))
             
         self.t += 1
