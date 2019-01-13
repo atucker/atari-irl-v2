@@ -256,7 +256,6 @@ class QTrainer(PolicyTrainer):
         self.act = deepq.ActWrapper(act, act_params)
 
         # Create the replay buffer
-        self.replay_buffer = deepq.ReplayBuffer(buffer_size)
         self.beta_schedule = None
 
         # Create the schedule for exploration starting from 1.
@@ -292,14 +291,6 @@ class QTrainer(PolicyTrainer):
     def train(self, buffer: Buffer[QInfo], itr: int, log_freq=1000) -> None:
         assert itr == self.t
         t = itr
-        for experience in buffer.iter_items('obs', 'acts', 'rewards', 'next_obs', 'next_dones', start_at=buffer.time_shape.T-1):
-            self.replay_buffer.add(
-                experience.obs,
-                experience.acts,
-                experience.rewards,
-                experience.next_obs,
-                float(experience.next_dones)
-            )
         
         if t > self.learning_starts and t % self.train_freq == 0:
             # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
