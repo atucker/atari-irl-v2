@@ -66,12 +66,9 @@ class Buffer(Generic[T]):
         self.env_info = env_info
         self.sampler_state = sampler_state
         
-        if self.time_shape.num_envs is None:
-            self.sample_idx = 0
-            self.shuffle = np.arange(self.time_shape.T)
-            self.reshuffle()
+        
 
-    def reshuffle(self):
+    def reshuffle(self):            
         np.random.shuffle(self.shuffle)
 
     @property
@@ -99,7 +96,7 @@ class Buffer(Generic[T]):
         return self.env_info.next_dones
     
     def iter_items(self, *keys) -> Iterator:
-        TupClass = namedtuple('TupClass', *keys)
+        TupClass = namedtuple('TupClass', keys)
         
         if self.time_shape.num_envs is None or self.time_shape.T is None:
             for i in range(self.obs.shape[0]):
@@ -120,6 +117,12 @@ class Buffer(Generic[T]):
         modify_obs: Callable[[np.ndarray], np.ndarray]
     ) -> Tuple[np.ndarray]:
         assert self.time_shape.num_envs is None
+        
+        if not hasattr(self, 'sample_idx'):
+            if self.time_shape.num_envs is None:
+                self.sample_idx = 0
+                self.shuffle = np.arange(self.time_shape.T)
+                self.reshuffle()
         
         # If we'd run past the end, then reshuffle
         # It's fine to miss the last few because we're reshuffling, and so any index

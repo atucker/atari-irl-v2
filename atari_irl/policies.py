@@ -292,15 +292,14 @@ class QTrainer(PolicyTrainer):
     def train(self, buffer: Buffer[QInfo], itr: int, log_freq=1000) -> None:
         assert itr == self.t
         t = itr
-        for buffer_t in range(buffer.time_shape.T):
-            for e in range(buffer.time_shape.num_envs):
-                self.replay_buffer.add(
-                    buffer.obs[buffer_t, e],
-                    buffer.acts[buffer_t, e],
-                    buffer.rewards[buffer_t, e],
-                    buffer.next_obs[buffer_t, e],
-                    float(buffer.next_dones[buffer_t, e])
-                )
+        for experience in buffer.iter_items('acts', 'obs', 'rewards', 'next_obs', 'next_dones'):
+            self.replay_buffer.add(
+                experience.obs,
+                experience.acts,
+                experience.rewards,
+                experience.next_obs,
+                float(experience.next_dones)
+            )
         
         if t > self.learning_starts and t % self.train_freq == 0:
             # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
