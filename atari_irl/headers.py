@@ -1,4 +1,4 @@
-from typing import NamedTuple, Optional, Tuple, Generic, TypeVar, Dict, List, Any, TYPE_CHECKING
+from typing import NamedTuple, Optional, Tuple, Generic, TypeVar, Dict, List, Any, Callable
 import numpy as np
 import gym
 from baselines.common.vec_env import VecEnv
@@ -64,6 +64,14 @@ class Buffer(Generic[T]):
         self.policy_info = policy_info
         self.env_info = env_info
         self.sampler_state = sampler_state
+        
+        if self.time_shape.num_envs is None:
+            self.sample_idx = 0
+            self.shuffle = np.arange(self.time_shape.T)
+            self.reshuffle()
+
+    def reshuffle(self):
+        np.random.shuffle(self.shuffle)
 
     @property
     def obs(self):
@@ -87,7 +95,36 @@ class Buffer(Generic[T]):
     
     @property
     def next_dones(self):
-        return self.env_info.dones
+        return self.env_info.next_dones
+    
+    def sample_batch(
+        self,
+        *keys: Tuple[str],
+        batch_size: int,
+        modify_obs: Callable[[np.ndarray], np.ndarray]
+    ) -> Tuple[np.ndarray]:
+        assert self.time_shape.num_envs is None
+        
+        # If we'd run past the end, then reshuffle
+        # It's fine to miss the last few because we're reshuffling, and so any index
+        # is equally likely to miss out
+        if self.sample_idx + batch_size > self.time_shape.T:
+            self.reshuffle()
+            self.sample_idx = 0
+            
+        batch_slice = self.shuffle[self.sample_idx:self.sample_idx+batch_size]
+        def get_key(key):
+            ans = getattr(self, key)[batch_slice]
+            if 'obs' in key:
+                ans = modify_obs(ans)
+            return ans
+        
+        ans = tuple(get_key(key) for key in keys)
+        
+        # increment the read index
+        self.sample_idx += batch_size
+        
+        return ans
 
 
 class Batch(NamedTuple):
