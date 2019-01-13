@@ -46,7 +46,7 @@ class AtariAIRL:
     def __init__(
          self, *,
          env,
-         expert_trajs=None,
+         expert_buffer,
          reward_arch=cnn_net,
          reward_arch_args={},
          value_fn_arch=cnn_net,
@@ -55,8 +55,7 @@ class AtariAIRL:
          state_only=False,
          max_itrs=100,
          drop_framestack=False,
-         only_show_scores=False,
-         rescore_expert_trajs=True,
+         only_show_scores=False
     ):
         name='reward_model'
 
@@ -77,9 +76,7 @@ class AtariAIRL:
         self.max_itrs = max_itrs
         self.only_show_scores = only_show_scores
 
-        self.expert_trajs = expert_trajs
-        self.expert_cache = None
-        self.rescore_expert_trajs = rescore_expert_trajs
+        self.expert_buffer = expert_buffer
 
         with tf.variable_scope(name) as _vs:
             # Should be batch_size x T x dO/dU
@@ -144,7 +141,6 @@ class AtariAIRL:
         
         # Train discriminator
         for it in range(self.max_itrs):
-
             nobs_batch, obs_batch, nact_batch, act_batch, lprobs_batch = \
                 buffer.sample_batch(
                     'obs_next',
@@ -157,7 +153,7 @@ class AtariAIRL:
                 )
 
             nexpert_obs_batch, expert_obs_batch, nexpert_act_batch, expert_act_batch = \
-                self.expert_trajs.sample_batch(
+                self.expert_buffer.sample_batch(
                     'obs_next',
                     'obs',
                     'acts_next'
@@ -230,9 +226,6 @@ class AtariAIRL:
         self.score_mean = np.mean(scores)
 
     def eval(self, buffer: Buffer) -> np.ndarray:
-        """
-        Return bonus
-        """
         if self.score_discrim:
             obs, obs_next, acts, path_probs = (
                 self.modify_obs(buffer.obs),

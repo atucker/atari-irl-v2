@@ -7,7 +7,7 @@ from baselines.common.vec_env import VecEnv
 from baselines import logger
 from baselines.ppo2.ppo2 import safemean
 
-from . import environments, policies, buffers
+from . import environments, policies, buffers, discriminators
 from .headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer, SamplerState
 from .utils import Stacker
 
@@ -157,7 +157,7 @@ class IRL:
                 itr=i,
                 log_freq=log_freq
             )
-            self.update_discriminator(itr=i)
+            #self.update_discriminator(itr=i)
             if i % log_freq == 0:
                 self.log_performance(i)
 
