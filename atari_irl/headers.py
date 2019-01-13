@@ -8,6 +8,24 @@ from baselines.common.vec_env import VecEnv
 class TimeShape(NamedTuple):
     T: Optional[int] = None
     num_envs: Optional[int] = None
+        
+    def check_shape(self, arr: np.ndarray) -> None:
+        if self.T is not None and self.num_envs is not None:
+            assert arr.shape[0] == self.num_envs
+            assert arr.shape[1] == self.T
+        else:
+            N = self.T or self.num_envs
+            assert arr.shape[0] == N
+            
+    def reshape(self, from_time_shape: 'TimeShape', data: np.ndarray) -> None:
+        from_time_shape.check_shape(data)
+        if self.T is not None and self.num_envs is None:
+            assert self.T == from_time_shape.T * from_time_shape.num_envs
+            ans = data.reshape((self.T, *data.shape[2:]))
+            self.check_shape(ans)
+            return ans
+        else:
+            raise NotImplemented
 
 
 class Observations(NamedTuple):
@@ -65,8 +83,6 @@ class Buffer(Generic[T]):
         self.policy_info = policy_info
         self.env_info = env_info
         self.sampler_state = sampler_state
-        
-        
 
     def reshuffle(self):            
         np.random.shuffle(self.shuffle)
@@ -95,26 +111,29 @@ class Buffer(Generic[T]):
     def next_dones(self):
         return self.env_info.next_dones
     
-    def iter_items(self, *keys) -> Iterator:
+    def iter_items(self, *keys, start_at=0) -> Iterator:
         TupClass = namedtuple('TupClass', keys)
         
         if self.time_shape.num_envs is None or self.time_shape.T is None:
             for i in range(self.obs.shape[0]):
-                yield TupClass(**dict(
-                    (key, getattr(self, key)[i]) for key in keys
-                ))
+                if i >= start_at:
+                    yield TupClass(**dict(
+                        (key, getattr(self, key)[i]) for key in keys
+                    ))
         else:
             for i in range(self.obs.shape[0]):
                 for j in range(self.obs.shape[1]):
-                    yield TupClass(**dict(
-                        (key, getattr(self, key)[i, j]) for key in keys
-                    ))
+                    if i * self.obs.shape[1] + j >= start_at:
+                        yield TupClass(**dict(
+                            (key, getattr(self, key)[i, j]) for key in keys
+                        ))
     
     def sample_batch(
         self,
         *keys: Tuple[str],
         batch_size: int,
-        modify_obs: Callable[[np.ndarray], np.ndarray]
+        modify_obs: Callable[[np.ndarray], np.ndarray] = lambda obs: obs,
+        debug=False
     ) -> Tuple[np.ndarray]:
         assert self.time_shape.num_envs is None
         
@@ -127,15 +146,23 @@ class Buffer(Generic[T]):
         # If we'd run past the end, then reshuffle
         # It's fine to miss the last few because we're reshuffling, and so any index
         # is equally likely to miss out
-        if self.sample_idx + batch_size > self.time_shape.T:
-            self.reshuffle()
+        if self.sample_idx + batch_size >= self.time_shape.T:
             self.sample_idx = 0
+            self.shuffle = np.arange(self.time_shape.T)
+            self.reshuffle()
             
-        batch_slice = self.shuffle[self.sample_idx:self.sample_idx+batch_size]
+        if self.sample_idx + batch_size >= len(self.shuffle):
+            self.shuffle = np.arange(self.time_shape.T)
+            self.reshuffle()
+            
+        batch_slice = slice(self.sample_idx, self.sample_idx+batch_size)
         def get_key(key):
-            ans = getattr(self, key)[batch_slice]
+            ans = getattr(self, key)[self.shuffle[batch_slice]]
             if 'obs' in key:
                 ans = modify_obs(ans)
+            if debug:
+                print(f"{key}: {ans.shape}")
+            assert ans.shape[0] > 0
             return ans
         
         ans = tuple(get_key(key) for key in keys)
@@ -171,6 +198,10 @@ class Batch(NamedTuple):
     @property
     def dones(self):
         return self.env_info.dones
+    
+    @property
+    def next_dones(self):
+        return self.env_info.next_dones
 
 
 class PolicyTrainer:

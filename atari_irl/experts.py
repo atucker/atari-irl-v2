@@ -1,6 +1,6 @@
 from atari_irl import headers
 from atari_irl.headers import Buffer, PolicyInfo, EnvInfo, TimeShape
-from atari_irl.irl import Stacker
+from atari_irl.utils import Stacker
 from typing import NamedTuple, Tuple, Callable
 import numpy as np
 

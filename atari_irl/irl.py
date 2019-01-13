@@ -8,25 +8,12 @@ from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines import logger
 from baselines.ppo2.ppo2 import safemean
 
-from . import environments, policies
+from . import environments, policies, buffers
 from .headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer, SamplerState
+from .utils import Stacker
 
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
-
-
-class Stacker:
-    def __init__(self, other_cls: Type) -> None:
-        self.data_cls = other_cls
-        self.data = OrderedDict((f, []) for f in self.data_cls._fields)
-
-    def append(self, tup: NamedTuple) -> None:
-        assert isinstance(tup, self.data_cls)
-        for f in tup._fields:
-            self.data[f].append(getattr(tup, f))
-
-    def __getattr__(self, item) -> Any:
-        return self.data[item]
 
 
 class RandomPolicy(PolicyTrainer):
@@ -42,7 +29,7 @@ class RandomPolicy(PolicyTrainer):
 
     def train(self, buffer: Buffer, i: int) -> None:
         pass
-
+    
     
 class Sampler:
     def __init__(self, env: VecEnv, policy: PolicyTrainer) -> None:
@@ -123,28 +110,6 @@ class Sampler:
         )
 
 
-T = TypeVar('T')
-
-
-class DummyBuffer(Buffer[T]):
-    def __init__(self):
-        super().__init__(
-            time_shape=None,
-            policy_info=None,
-            env_info=None,
-            sampler_state=None
-        )
-        self.batch = None
-
-    def add_batch(self, samples: Batch) -> None:
-        self.batch = samples
-
-        self.time_shape = samples.time_shape
-        self.env_info = samples.env_info
-        self.policy_info = samples.policy_info
-        self.sampler_state = samples.sampler_state
-
-
 class IRL:
     def __init__(self, args):
         self.env = environments.make_vec_env(
@@ -154,7 +119,7 @@ class IRL:
             num_envs=1
         )
 
-        self.buffer = DummyBuffer[policies.QInfo]()
+        self.buffer = buffers.FlatBuffer[policies.QInfo](policies.QInfo)
         self.policy = policies.QTrainer(
             env=self.env,
             network='mlp'
