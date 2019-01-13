@@ -1,4 +1,5 @@
-from typing import NamedTuple, Optional, Tuple, Generic, TypeVar, Dict, List, Any, Callable
+from typing import NamedTuple, Optional, Tuple, Generic, TypeVar, Dict, List, Any, Callable, Iterator
+from collections import namedtuple
 import numpy as np
 import gym
 from baselines.common.vec_env import VecEnv
@@ -96,6 +97,21 @@ class Buffer(Generic[T]):
     @property
     def next_dones(self):
         return self.env_info.next_dones
+    
+    def iter_items(self, *keys) -> Iterator:
+        TupClass = namedtuple('TupClass', *keys)
+        
+        if self.time_shape.num_envs is None or self.time_shape.T is None:
+            for i in range(self.obs.shape[0]):
+                yield TupClass(**dict(
+                    (key, getattr(self, key)[i]) for key in keys
+                ))
+        else:
+            for i in range(self.obs.shape[0]):
+                for j in range(self.obs.shape[1]):
+                    yield TupClass(**dict(
+                        (key, getattr(self, key)[i, j]) for key in keys
+                    ))
     
     def sample_batch(
         self,
