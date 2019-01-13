@@ -1,8 +1,8 @@
 import tensorflow as tf
 import numpy as np
 from baselines.a2c.utils import conv, fc, conv_to_fc
-from headers import Stacker, Buffer, PolicyTrainer
-from type import NamedTuple
+from .headers import Stacker, Buffer, PolicyTrainer
+from typing import NamedTuple
 from baselines import logger
 
 def batch_norm(x, name):
