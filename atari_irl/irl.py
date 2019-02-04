@@ -7,10 +7,11 @@ from baselines.common.vec_env import VecEnv
 from baselines import logger
 from baselines.ppo2.ppo2 import safemean
 
-from . import environments, policies, buffers, discriminators
+from . import environments, policies, buffers, discriminators, experts
 from .headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer, SamplerState
 from .utils import Stacker
 
+import pickle
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -110,28 +111,32 @@ class Sampler:
 
 
 class IRL:
-    def __init__(self, args):
+    def __init__(self, args, fname):
         self.env = environments.make_vec_env(
-            env_name='CartPole-v1',
+            env_name='PLECatcher-v0',
             seed=0,
             one_hot_code=False,
             num_envs=1
         )
 
-        self.buffer = buffers.FlatBuffer[policies.QInfo](policies.QInfo)
+        self.buffer = buffers.ViewBuffer[policies.QInfo](policies.QInfo)
         self.policy = policies.QTrainer(
             env=self.env,
-            network='mlp'
+            network='conv_only'
+        )
+        self.discriminator = discriminators.AtariAIRL(
+            env=self.env,
+            expert_buffer=experts.ExpertBuffer.from_trajectories(pickle.load(open(fname, 'rb')))
         )
         self.sampler = Sampler(
             env=self.env,
             policy=self.policy
         )
-        
+
         self.eval_epinfobuf = deque(maxlen=100)
         self.total_episodes = 0
         self.batch_t = 1
-
+        
     def obtain_samples(self):
         batch = self.sampler.sample_batch(self.batch_t)
         self.total_episodes += len(batch.env_info.epinfobuf)
@@ -144,11 +149,13 @@ class IRL:
         logger.logkv('timesteps covered', i * self.env.num_envs * self.batch_t)
         logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in self.eval_epinfobuf]))
         logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in self.eval_epinfobuf]))
+        logger.logkv('buffer size', self.buffer.time_shape.size)
         logger.dumpkvs()
 
     def train(self):
         log_freq = 100
         logger.configure()
+        
         for i in range(int(100000)):
             samples = self.obtain_samples()
             self.buffer.add_batch(samples)
@@ -157,7 +164,12 @@ class IRL:
                 itr=i,
                 log_freq=log_freq
             )
-            #self.update_discriminator(itr=i)
+            if i % 128 == 0:
+                self.discriminator.fit(
+                    buffer=self.buffer,
+                    policy=self.policy,
+                    itr=i
+                )
             if i % log_freq == 0:
                 self.log_performance(i)
 

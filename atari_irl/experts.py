@@ -97,3 +97,7 @@ class ExpertBuffer(Buffer[PolicyInfo]):
             acts=acts, next_acts=next_acts,
             dones=dones, next_dones=next_dones
         )
+
+    @property
+    def next_acts(self):
+        return self.policy_info.next_actions

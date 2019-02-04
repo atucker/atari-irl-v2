@@ -1,9 +1,11 @@
 import tensorflow as tf
 import numpy as np
 from baselines.a2c.utils import conv, fc, conv_to_fc
+import baselines.common.tf_util as U
 from .headers import Stacker, Buffer, PolicyTrainer
 from typing import NamedTuple
 from baselines import logger
+import functools
 
 def batch_norm(x, name):
     shape = (1, *x.shape[1:])
@@ -59,12 +61,17 @@ class AtariAIRL:
     ):
         name='reward_model'
 
-        self.dO = env.observation_space.flat_dim
+        self.action_space = env.action_space
+        self.dO = functools.reduce(
+            lambda a, b: a * b,
+            env.observation_space.shape,
+            1
+        )
         self.dOshape = env.observation_space.shape
         if drop_framestack:
             assert len(self.dOshape) == 3
             self.dOshape = (*self.dOshape[:-1], 1)
-        self.dU = env.action_space.flat_dim
+        self.dU = env.action_space.n
 
         self.score_discrim = score_discrim
         self.state_only = state_only
@@ -128,6 +135,9 @@ class AtariAIRL:
 
             self.score_mean = 0
             self.score_std = 1
+            
+            U.initialize()
+            tf.get_default_session().run(tf.local_variables_initializer())
 
     def _process_discrim_output(self, score):
         score = np.clip(score, 1e-7, 1 - 1e-7)
@@ -136,6 +146,9 @@ class AtariAIRL:
         return np.clip((score - self.score_mean) / self.score_std, -3, 3), score
 
     def fit(self, buffer: Buffer, policy: PolicyTrainer, batch_size=256, lr=1e-3, itr=0, **kwargs):
+        if batch_size > buffer.time_shape.size:
+            return
+        
         raw_discrim_scores = []
         stacker = Stacker(ItrData)
         
@@ -143,28 +156,31 @@ class AtariAIRL:
         for it in range(self.max_itrs):
             nobs_batch, obs_batch, nact_batch, act_batch, lprobs_batch = \
                 buffer.sample_batch(
-                    'obs_next',
+                    'next_obs',
                     'obs',
-                    'acts_next'
+                    'next_acts',
                     'acts',
                     'lprobs',
                     batch_size=batch_size,
-                    modify_obs=self.modify_obs
+                    modify_obs=self.modify_obs,
+                    one_hot_acts_to_dim=self.action_space.n
                 )
 
             nexpert_obs_batch, expert_obs_batch, nexpert_act_batch, expert_act_batch = \
                 self.expert_buffer.sample_batch(
-                    'obs_next',
+                    'next_obs',
                     'obs',
-                    'acts_next'
+                    'next_acts',
                     'acts',
                     batch_size=batch_size,
                     modify_obs=self.modify_obs
                 )
+            
 
             # TODO(Aaron): put this graph directly into the reward network
             expert_lprobs_batch = policy.get_a_logprobs(
-                obs=expert_obs_batch, acts=expert_act_batch
+                obs=expert_obs_batch,
+                acts=expert_act_batch
             )
 
             # Build feed dict
@@ -208,10 +224,11 @@ class AtariAIRL:
                 accuracy=acc,
                 score=np.mean(score)
             ))
-            if it % 5 == 0:
+            if it % int(self.max_itrs / 5) == 0:
+                print(f'\t{it}/{self.max_itrs}')
                 mean_loss = np.mean(stacker.loss)
                 print('\tLoss:%f' % mean_loss)
-                mean_acc = np.mean(stacker.acccuracy)
+                mean_acc = np.mean(stacker.accuracy)
                 print('\tAccuracy:%f' % mean_acc)
                 mean_score = np.mean(score)
 

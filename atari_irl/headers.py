@@ -5,29 +5,40 @@ from collections import namedtuple, OrderedDict
 import numpy as np
 import gym
 from baselines.common.vec_env import VecEnv
+import functools
 
+from .utils import one_hot
 
 class TimeShape(NamedTuple):
     T: Optional[int] = None
     num_envs: Optional[int] = None
+    batches: Optional[int] = None
         
     def check_shape(self, arr: np.ndarray) -> None:
-        if self.T is not None and self.num_envs is not None:
-            assert arr.shape[0] == self.num_envs
-            assert arr.shape[1] == self.T
+        if self.batches is None:
+            if self.T is not None and self.num_envs is not None:
+                assert arr.shape[0] == self.num_envs
+                assert arr.shape[1] == self.T
+            else:
+                N = self.T or self.num_envs
+                assert arr.shape[0] == N
         else:
-            N = self.T or self.num_envs
-            assert arr.shape[0] == N
+            raise NotImplemented
             
     def reshape(self, from_time_shape: 'TimeShape', data: np.ndarray) -> None:
         from_time_shape.check_shape(data)
-        if self.T is not None and self.num_envs is None:
+        if self.T is not None and self.num_envs is None and self.batches is None:
             assert self.T == from_time_shape.T * from_time_shape.num_envs
             ans = data.reshape((self.T, *data.shape[2:]))
             self.check_shape(ans)
             return ans
         else:
             raise NotImplemented
+            
+    @property
+    def size(self):
+        values = [v for v in (self.T, self.num_envs, self.batches) if v is not None]
+        return functools.reduce(lambda a, b: a * b, values, 1)
 
 
 class Observations(NamedTuple):
@@ -116,52 +127,69 @@ class Buffer(Generic[T]):
     def iter_items(self, *keys, start_at=0) -> Iterator:
         TupClass = namedtuple('TupClass', keys)
         
-        if self.time_shape.num_envs is None or self.time_shape.T is None:
-            for i in range(self.obs.shape[0]):
-                if i >= start_at:
-                    yield TupClass(**dict(
-                        (key, getattr(self, key)[i]) for key in keys
-                    ))
-        else:
-            for i in range(self.obs.shape[0]):
-                for j in range(self.obs.shape[1]):
-                    if i * self.obs.shape[1] + j >= start_at:
+        if self.time_shape.batches is None:
+            if self.time_shape.num_envs is None or self.time_shape.T is None:
+                for i in range(self.obs.shape[0]):
+                    if i >= start_at:
                         yield TupClass(**dict(
-                            (key, getattr(self, key)[i, j]) for key in keys
+                            (key, getattr(self, key)[i]) for key in keys
                         ))
-    
+            else:
+                for i in range(self.obs.shape[0]):
+                    for j in range(self.obs.shape[1]):
+                        if i * self.obs.shape[1] + j >= start_at:
+                            yield TupClass(**dict(
+                                (key, getattr(self, key)[i, j]) for key in keys
+                            ))
+        else:
+            for b in range(self.time_shape.batches):
+                if self.time_shape.num_envs is None or self.time_shape.T is None:
+                    for i in range(self.obs[b].shape[0]):
+                        if i >= start_at:
+                            yield TupClass(**dict(
+                                (key, getattr(self, key)[b][i]) for key in keys
+                            ))
+                else:
+                    for i in range(self.obs[b].shape[0]):
+                        for j in range(self.obs[b].shape[1]):
+                            if i * self.obs[b].shape[1] + j >= start_at:
+                                yield TupClass(**dict(
+                                    (key, getattr(self, key)[b][i, j]) for key in keys
+                                ))
+
     def sample_batch(
         self,
         *keys: Tuple[str],
         batch_size: int,
         modify_obs: Callable[[np.ndarray], np.ndarray] = lambda obs: obs,
+        one_hot_acts_to_dim: Optional[int] = None,
         debug=False
     ) -> Tuple[np.ndarray]:
-        assert self.time_shape.num_envs is None
-        
         if not hasattr(self, 'sample_idx'):
-            if self.time_shape.num_envs is None:
-                self.sample_idx = 0
-                self.shuffle = np.arange(self.time_shape.T)
-                self.reshuffle()
+            self.sample_idx = 0
+            self.shuffle = np.arange(self.time_shape.size)
+            self.reshuffle()
         
         # If we'd run past the end, then reshuffle
         # It's fine to miss the last few because we're reshuffling, and so any index
         # is equally likely to miss out
-        if self.sample_idx + batch_size >= self.time_shape.T:
+        if self.sample_idx + batch_size >= self.time_shape.size:
             self.sample_idx = 0
-            self.shuffle = np.arange(self.time_shape.T)
+            self.shuffle = np.arange(self.time_shape.size)
             self.reshuffle()
             
         if self.sample_idx + batch_size >= len(self.shuffle):
-            self.shuffle = np.arange(self.time_shape.T)
+            self.shuffle = np.arange(self.time_shape.size)
             self.reshuffle()
             
+        #assert self.shuffle.shape[0] >= batch_size, f"batch size {batch_size} > amount of data {self.time_shape.size}"
         batch_slice = slice(self.sample_idx, self.sample_idx+batch_size)
         def get_key(key):
             ans = getattr(self, key)[self.shuffle[batch_slice]]
             if 'obs' in key:
                 ans = modify_obs(ans)
+            if 'act' in key and one_hot_acts_to_dim is not None and len(ans.shape) == 1:
+                ans = one_hot(ans, one_hot_acts_to_dim)
             if debug:
                 print(f"{key}: {ans.shape}")
             assert ans.shape[0] > 0

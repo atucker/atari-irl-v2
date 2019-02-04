@@ -107,6 +107,28 @@ class PPO2Trainer(PolicyTrainer):
             values=values,
             neglogpacs=neglogpacs
         )
+    
+    """
+    def get_probabilities_for_obs(self, obs: np.ndarray) -> np.ndarray:
+        tm = self.model.train_model
+        return tf.get_default_session().run(
+            tf.nn.softmax(tm.pd.logits),
+            {tm.X: obs}
+        )
+
+    def get_a_logprobs(self, obs: np.ndarray, acts: np.ndarray) -> np.ndarray:
+        probs = self.get_probabilities_for_obs(obs)
+        ""
+        utils.batched_call(
+            # needs to be a tuple for the batched call to work
+            lambda obs: (self.get_probabilities_for_obs(obs),),
+            self.model.train_model.X.shape[0].value,
+            (obs,),
+            check_safety=False
+        )[0]
+        ""
+        return np.log((probs * acts).sum(axis=1))
+    """
 
     def train(self, buffer: Buffer[PPO2Info], itr: int, log_freq=1000) -> None:
         tstart = time.time()
@@ -246,6 +268,7 @@ class QTrainer(PolicyTrainer):
             grad_norm_clipping=10,
             param_noise=self.param_noise
         )
+        assert 'q_values' in self.debug
 
         act_params = {
             'make_obs_ph': make_obs_ph,
@@ -278,6 +301,8 @@ class QTrainer(PolicyTrainer):
         update_eps = self.exploration.value(self.t)
         update_param_noise_threshold = 0.
 
+        self.last_explore_frac = update_eps
+        
         return QInfo(
             time_shape=obs_batch.time_shape,
             actions=self.act(
@@ -287,6 +312,21 @@ class QTrainer(PolicyTrainer):
             ),
             explore_frac = [update_eps]
         )
+    
+    def get_a_logprobs(self, obs: np.ndarray, acts: np.ndarray) -> np.ndarray:
+        qs = self.debug['q_values'](obs)
+        random_p = 1.0 / self.action_space.n
+        logp_argmax = np.log((1.0 - self.last_explore_frac) * 1.0 + self.last_explore_frac * random_p)
+        logp_other = np.log(self.last_explore_frac) - np.log(self.action_space.n)
+        
+        #a_logprobs = acts.copy()
+        #a_logprobs[~a_logprobs.astype(np.bool)] = logp_other
+        #a_logprobs[a_logprobs.astype(np.bool)] = logp_argmax
+        
+        a_logprobs = (acts.argmax(axis=1) == qs.argmax(axis=1))
+        a_logprobs[~a_logprobs.astype(np.bool)] == logp_other
+        a_logprobs[a_logprobs.astype(np.bool)] == logp_argmax
+        return a_logprobs
 
     def train(self, buffer: Buffer[QInfo], itr: int, log_freq=1000) -> None:
         assert itr == self.t

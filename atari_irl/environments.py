@@ -19,14 +19,7 @@ import gym
 import ple
 import os
 
-
-def one_hot(x, dim):
-    assert isinstance(x, list) or len(x.shape) == 1
-    ans = np.zeros((len(x), dim))
-    for n, i in enumerate(x):
-        ans[n, i] = 1
-    return ans
-
+from .utils import one_hot
 
 def vec_normalize(env):
     return VecNormalize(env)
