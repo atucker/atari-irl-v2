@@ -22,6 +22,8 @@ import baselines.common.tf_util as U
 import tensorflow as tf
 
 from .headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
+from .discriminators import AtariAIRL
+from .utils import one_hot
 
 
 class EnvSpec(NamedTuple):
@@ -328,16 +330,18 @@ class QTrainer(PolicyTrainer):
         a_logprobs[a_logprobs.astype(np.bool)] == logp_argmax
         return a_logprobs
 
-    def train(self, buffer: Buffer[QInfo], itr: int, log_freq=1000) -> None:
+    def train(self, buffer: Buffer[QInfo], discriminator: AtariAIRL, itr: int, log_freq=1000) -> None:
         assert itr == self.t
         t = itr
         
         if t > self.learning_starts and t % self.train_freq == 0:
             # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
-            obses_t, actions, rewards, obses_tp1, dones = buffer.sample_batch(
+            obses_t, actions, _rewards, obses_tp1, dones = buffer.sample_batch(
                 'obs', 'acts', 'rewards', 'next_obs', 'next_dones',
                 batch_size=self.batch_size
             )
+            assert np.isclose(_rewards.sum(), 0)
+            rewards = discriminator.eval(obs=obses_t, acts=one_hot(actions, discriminator.dU))
 
             weights, batch_idxes = np.ones_like(rewards), None
             td_errors = self.train_model(obses_t, actions, rewards, obses_tp1, dones, weights)

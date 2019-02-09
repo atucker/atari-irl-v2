@@ -2,8 +2,9 @@ import tensorflow as tf
 import numpy as np
 from baselines.a2c.utils import conv, fc, conv_to_fc
 import baselines.common.tf_util as U
-from .headers import Stacker, Buffer, PolicyTrainer
-from typing import NamedTuple
+from .headers import Stacker, Buffer, PolicyTrainer, EnvInfo, Batch
+from .utils import one_hot
+from typing import NamedTuple, Optional
 from baselines import logger
 import functools
 
@@ -163,7 +164,7 @@ class AtariAIRL:
                     'lprobs',
                     batch_size=batch_size,
                     modify_obs=self.modify_obs,
-                    one_hot_acts_to_dim=self.action_space.n
+                    one_hot_acts_to_dim=self.dU
                 )
 
             nexpert_obs_batch, expert_obs_batch, nexpert_act_batch, expert_act_batch = \
@@ -242,13 +243,17 @@ class AtariAIRL:
         self.score_std = np.std(scores)
         self.score_mean = np.mean(scores)
 
-    def eval(self, buffer: Buffer) -> np.ndarray:
+    def eval(
+        self,
+        obs: np.ndarray, acts: np.ndarray,
+        next_obs: Optional[np.ndarray]=None,log_probs: Optional[np.ndarray]=None
+    ) -> np.ndarray:
         if self.score_discrim:
             obs, obs_next, acts, path_probs = (
-                self.modify_obs(buffer.obs),
-                self.modify_obs(buffer.next_obs),
-                buffer.acts,
-                buffer.policy_info.log_probs
+                self.modify_obs(obs),
+                self.modify_obs(next_obs),
+                acts,
+                batch.log_probs
             )
             path_probs = np.expand_dims(path_probs, axis=1)
             scores = tf.get_default_session().run(
@@ -265,8 +270,8 @@ class AtariAIRL:
         else:
             reward = tf.get_default_session().run(
                 self.reward, feed_dict={
-                    self.act_t: buffer.actions,
-                    self.obs_t: self.modify_obs(buffer.observations)
+                    self.act_t: acts,
+                    self.obs_t: self.modify_obs(obs)
                 }
             )
             score = reward[:, 0]

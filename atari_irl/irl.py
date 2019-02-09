@@ -119,15 +119,16 @@ class IRL:
             num_envs=1
         )
 
+        self.discriminator = discriminators.AtariAIRL(
+            env=self.env,
+            expert_buffer=experts.ExpertBuffer.from_trajectories(pickle.load(open(fname, 'rb')))
+        )
         self.buffer = buffers.ViewBuffer[policies.QInfo](policies.QInfo)
         self.policy = policies.QTrainer(
             env=self.env,
             network='conv_only'
         )
-        self.discriminator = discriminators.AtariAIRL(
-            env=self.env,
-            expert_buffer=experts.ExpertBuffer.from_trajectories(pickle.load(open(fname, 'rb')))
-        )
+
         self.sampler = Sampler(
             env=self.env,
             policy=self.policy
@@ -141,7 +142,21 @@ class IRL:
         batch = self.sampler.sample_batch(self.batch_t)
         self.total_episodes += len(batch.env_info.epinfobuf)
         self.eval_epinfobuf.extend(batch.env_info.epinfobuf)
-        return batch
+        
+        return Batch(
+            time_shape=batch.time_shape,
+            sampler_state=batch.sampler_state,
+            env_info=EnvInfo(
+                time_shape=batch.env_info.time_shape,
+                obs=batch.env_info.obs,
+                next_obs=batch.env_info.next_obs,
+                rewards=np.zeros(batch.env_info.rewards.shape),
+                dones=batch.env_info.dones,
+                next_dones=batch.env_info.next_dones,
+                epinfobuf=[]
+            ),
+            policy_info=batch.policy_info
+        )
         
     def log_performance(self, i):
         logger.logkv('itr', i)
@@ -161,6 +176,7 @@ class IRL:
             self.buffer.add_batch(samples)
             self.policy.train(
                 buffer=self.buffer,
+                discriminator=self.discriminator,
                 itr=i,
                 log_freq=log_freq
             )
