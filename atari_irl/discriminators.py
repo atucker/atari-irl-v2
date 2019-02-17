@@ -246,14 +246,15 @@ class AtariAIRL:
     def eval(
         self,
         obs: np.ndarray, acts: np.ndarray,
-        next_obs: Optional[np.ndarray]=None,log_probs: Optional[np.ndarray]=None
+        next_obs: Optional[np.ndarray]=None,
+        log_probs: Optional[np.ndarray]=None
     ) -> np.ndarray:
         if self.score_discrim:
             obs, obs_next, acts, path_probs = (
                 self.modify_obs(obs),
                 self.modify_obs(next_obs),
                 acts,
-                batch.log_probs
+                log_probs
             )
             path_probs = np.expand_dims(path_probs, axis=1)
             scores = tf.get_default_session().run(
