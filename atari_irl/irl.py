@@ -7,7 +7,7 @@ from baselines.common.vec_env import VecEnv
 from baselines import logger
 from baselines.ppo2.ppo2 import safemean
 
-from . import environments, policies, buffers, discriminators, experts
+from . import environments, policies, buffers, discriminators, experts, experiments
 from .headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer, SamplerState
 from .utils import Stacker
 
@@ -146,6 +146,11 @@ class IRL:
             policy=self.policy
         )
 
+        self.cache = experiments.FilesystemCache('test_cache')
+        if self.policy.key in self.cache:
+            print("Restoring policy {self.policy.key} from cache!")
+            self.policy.restore_values_from_cache(self.cache)
+
         self.eval_epinfobuf = deque(maxlen=100)
         self.total_episodes = 0
         self.batch_t = 1
@@ -206,8 +211,14 @@ class IRL:
             if i % log_freq == 0:
                 self.log_performance(i)
 
+            if i % 8096 == 0:
+                print("Doing a cache roundtrip...")
+                self.policy.store_in_cache(self.cache)
+                self.policy.restore_values_from_cache(self.cache)
+
 
 def main():
+
     # train an expert
     # run the expert to generate trajectories
     # train an encoder

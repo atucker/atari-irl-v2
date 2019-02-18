@@ -143,11 +143,11 @@ class TfObject:
     def key(self):
         return f"tf_obj-{self.class_registration_name}-v{self.version};config-{self.tf_obj_config.key}"
 
-    def store_in_cache(self, cache: Cache) -> None:
-        cache[self.key] = (self.class_registration_name, self.tf_obj_config, self.values)
+    def store_in_cache(self, cache: Cache, key_mod='') -> None:
+        cache[self.key + key_mod] = (self.class_registration_name, self.tf_obj_config, self.values)
 
-    def restore_values_from_cache(self, cache: Cache) -> None:
-        (class_name, config_from_cache, values) = cache[self.key]
+    def restore_values_from_cache(self, cache: Cache, key_mod='') -> None:
+        (class_name, config_from_cache, values) = cache[self.key + key_mod]
         assert class_name == self.class_registration_name
         assert config_from_cache == self.tf_obj_config
         self.restore(values)
