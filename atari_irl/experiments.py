@@ -1,5 +1,5 @@
 import inspect
-from typing import Dict, Any, Type, List, NamedTuple
+from typing import Dict, Any, Type, List, NamedTuple, Optional
 import argparse
 import tensorflow as tf
 import numpy as np
@@ -31,20 +31,26 @@ class DictCache(Cache):
 
 
 class Configuration:
-    def __init__(self, parser: argparse.ArgumentParser, **overrides: Dict[str, Any]) -> None:
-        self.items = {}
-        self.static_value_keys = set()
+    default_values = {}
+
+    def __init__(self, parser: Optional[argparse.ArgumentParser], **overrides: Dict[str, Any]) -> None:
+        self.items = dict(**self.default_values)
+        if parser:
+            for key in self.default_values.keys():
+                self.items[key] = getattr(parser, key)
+        for key, val in overrides.items():
+            self.items[key] = val
 
     @staticmethod
     def add_args(parser: argparse.ArgumentParser) -> None:
         pass
 
-    @property
-    def key(self) -> str:
-        return ','.join([f"{key}={self.items[key]}" for key in self.static_value_keys])
-
     def __get__(self, key: str) -> Any:
         return self.items[key]
+
+    @property
+    def key(self) -> str:
+        return ','.join([f"{key}={getattr(self, key)}" for key in self.default_values.keys()])
 
 
 class Context(NamedTuple):

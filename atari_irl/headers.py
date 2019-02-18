@@ -6,9 +6,9 @@ import numpy as np
 import gym
 from baselines.common.vec_env import VecEnv
 import functools
-from . import experiments
 
 from .utils import one_hot
+
 
 class TimeShape(NamedTuple):
     T: Optional[int] = None

@@ -1,4 +1,4 @@
-from typing import NamedTuple
+from typing import NamedTuple, Dict, Any
 import gym
 import baselines
 import numpy as np
@@ -25,6 +25,8 @@ from .headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
 from .discriminators import AtariAIRL
 from .utils import one_hot
 
+from .experiments import TfObject, Configuration
+
 
 class EnvSpec(NamedTuple):
     """
@@ -50,7 +52,7 @@ class PPO2Info(PolicyInfo):
         self.neglogpacs = neglogpacs
 
 
-class PPO2Trainer(PolicyTrainer):
+class PPO2Trainer(PolicyTrainer, TfObject):
     info_class = PPO2Info
     
     def __init__(
@@ -229,6 +231,22 @@ class QInfo(PolicyInfo):
         self.explore_frac = explore_frac
 
 
+class QTrainingConfiguration(Configuration):
+    static_key_values = dict(
+        lr=5e-4,
+        gamma=1.0,
+        exploration_fraction=0.1,
+        exploration_final_eps=0.02,
+        total_timesteps=100000,
+        param_noise=False,
+        learning_starts=1000,
+        train_freq=1,
+        batch_size=32,
+        target_network_update_freq=500,
+        prioritized_replay=False
+    )
+
+
 class QTrainer(PolicyTrainer):
     info_class = QInfo
 
@@ -239,24 +257,10 @@ class QTrainer(PolicyTrainer):
             **network_kwargs
     ) -> None:
         super().__init__(env)
+
         q_func = deepq.build_q_func(network, **network_kwargs)
-
-        lr = 5e-4
-        gamma = 1.0
-
-        buffer_size = 50000
-        exploration_fraction = 0.1
-        exploration_final_eps = 0.02
-        
-        self.total_timesteps = 100000
-        self.param_noise = False
-        self.learning_starts = 1000
-        self.train_freq = 1
-        self.batch_size = 32
-        self.target_network_update_freq = 500
-        self.prioritized_replay = False
-
         observation_space = env.observation_space
+        self.trn_cfg = QTrainingConfiguration()
 
         def make_obs_ph(name):
             return deepq.ObservationInput(observation_space, name=name)
@@ -265,10 +269,10 @@ class QTrainer(PolicyTrainer):
             make_obs_ph=make_obs_ph,
             q_func=q_func,
             num_actions=env.action_space.n,
-            optimizer=tf.train.AdamOptimizer(learning_rate=lr),
-            gamma=gamma,
+            optimizer=tf.train.AdamOptimizer(learning_rate=self.trn_cfg.lr),
+            gamma=self.trn_cfg.gamma,
             grad_norm_clipping=10,
-            param_noise=self.param_noise
+            param_noise=self.trn_cfg.param_noise
         )
         assert 'q_values' in self.debug
 
@@ -285,9 +289,9 @@ class QTrainer(PolicyTrainer):
 
         # Create the schedule for exploration starting from 1.
         self.exploration = deepq.LinearSchedule(
-            schedule_timesteps=int(exploration_fraction * self.total_timesteps),
+            schedule_timesteps=int(self.trn_cfg.exploration_fraction * self.trn_cfg.total_timesteps),
             initial_p=1.0,
-            final_p=exploration_final_eps
+            final_p=self.trn_cfg.exploration_final_eps
         )
 
         U.initialize()
@@ -334,7 +338,7 @@ class QTrainer(PolicyTrainer):
         assert itr == self.t
         t = itr
         
-        if t > self.learning_starts and t % self.train_freq == 0:
+        if t > self.trn_cfg.learning_starts and t % self.trn_cfg.train_freq == 0:
             # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
             obses_t, actions, rewards, obses_tp1, dones = buffer.sample_batch(
                 'obs', 'acts', 'rewards', 'next_obs', 'next_dones',
@@ -343,7 +347,7 @@ class QTrainer(PolicyTrainer):
             weights, batch_idxes = np.ones_like(rewards), None
             td_errors = self.train_model(obses_t, actions, rewards, obses_tp1, dones, weights)
 
-        if t > self.learning_starts and t % self.target_network_update_freq == 0:
+        if t > self.trn_cfg.learning_starts and t % self.trn_cfg.target_network_update_freq == 0:
             # Update target network periodically.
             self.update_target()
             
