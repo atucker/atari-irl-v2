@@ -32,6 +32,7 @@ class DictCache(Cache):
 
 class Configuration:
     default_values = {}
+    attrs_exclude_from_key = set()
 
     def __init__(self, parser: Optional[argparse.ArgumentParser], **overrides: Dict[str, Any]) -> None:
         self.items = dict(**self.default_values)
@@ -50,7 +51,11 @@ class Configuration:
 
     @property
     def key(self) -> str:
-        return ','.join([f"{key}={getattr(self, key)}" for key in self.default_values.keys()])
+        return ','.join([
+            f"{key}={getattr(self, key)}"
+            for key in self.items.keys()
+            if key not in self.attrs_exclude_from_key
+        ])
 
 
 class Context(NamedTuple):

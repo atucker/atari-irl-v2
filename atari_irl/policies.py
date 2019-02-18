@@ -247,8 +247,18 @@ class QTrainingConfiguration(Configuration):
     )
 
 
-class QTrainer(PolicyTrainer):
+class NetworkKwargsConfiguration(Configuration):
+    default_values = dict(
+        network='conv_only',
+        network_kwargs={},
+        env=None
+    )
+    attrs_exclude_from_key={'env',}
+
+
+class QTrainer(PolicyTrainer, TfObject):
     info_class = QInfo
+    class_registration_name = 'QNetwork'
 
     def __init__(
             self,
@@ -256,11 +266,46 @@ class QTrainer(PolicyTrainer):
             network: str,
             **network_kwargs
     ) -> None:
-        super().__init__(env)
-
-        q_func = deepq.build_q_func(network, **network_kwargs)
-        observation_space = env.observation_space
+        PolicyTrainer.__init__(self, env)
         self.trn_cfg = QTrainingConfiguration()
+
+        self.train_model = None
+        self.update_target = None
+        self.debug = None
+        self.act = None
+
+        TfObject.__init__(
+            self,
+            NetworkKwargsConfiguration(
+                network=network,
+                network_kwargs=network_kwargs
+            )
+        )
+
+        # Create the replay buffer
+        self.beta_schedule = None
+
+        # Create the schedule for exploration starting from 1.
+        self.exploration = deepq.LinearSchedule(
+            schedule_timesteps=int(self.trn_cfg.exploration_fraction * self.trn_cfg.total_timesteps),
+            initial_p=1.0,
+            final_p=self.trn_cfg.exploration_final_eps
+        )
+
+        U.initialize()
+        self.update_target()
+
+        self.action_space = env.action_space
+        self.t = 0
+        self.env = env
+
+    def initialize_graph(self):
+        env = self.tf_obj_config.env
+        q_func = deepq.build_q_func(
+            self.tf_obj_config.network,
+            self.tf_obj_config.network_kwargs
+        )
+        observation_space = env.observation_space
 
         def make_obs_ph(name):
             return deepq.ObservationInput(observation_space, name=name)
@@ -283,23 +328,6 @@ class QTrainer(PolicyTrainer):
         }
 
         self.act = deepq.ActWrapper(act, act_params)
-
-        # Create the replay buffer
-        self.beta_schedule = None
-
-        # Create the schedule for exploration starting from 1.
-        self.exploration = deepq.LinearSchedule(
-            schedule_timesteps=int(self.trn_cfg.exploration_fraction * self.trn_cfg.total_timesteps),
-            initial_p=1.0,
-            final_p=self.trn_cfg.exploration_final_eps
-        )
-
-        U.initialize()
-        self.update_target()
-
-        self.action_space = env.action_space
-        self.t = 0
-        self.env = env
 
     def get_actions(self, obs_batch: Observations) -> QInfo:
         # Take action and update exploration to the newest value
@@ -355,3 +383,6 @@ class QTrainer(PolicyTrainer):
             logger.logkv('"% time spent exploring"', int(100 * buffer.policy_info.explore_frac[-1]))
             
         self.t += 1
+
+
+TfObject.register_cachable_class('QNetwork', QTrainer)
