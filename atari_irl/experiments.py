@@ -3,6 +3,8 @@ from typing import Dict, Any, Type, List, NamedTuple, Optional
 import argparse
 import tensorflow as tf
 import numpy as np
+import joblib
+import os.path
 
 
 class Cache:
@@ -28,6 +30,23 @@ class DictCache(Cache):
 
     def __setitem__(self, key: str, value: Any) -> None:
         self.data[key] = value
+
+
+class FilesystemCache(Cache):
+    def __init__(self, base_dir: str):
+        self.base_dir = base_dir
+
+    def filename_for_key(self, key):
+        return os.path.join(self.base_dir, key)
+
+    def __getitem__(self, key: str) -> Any:
+        return joblib.load(self.filename_for_key(key))
+
+    def __contains__(self, key: str) -> bool:
+        return os.path.exists(self.filename_for_key(key))
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        joblib.dump(value, self.filename_for_key(key))
 
 
 class Configuration:
