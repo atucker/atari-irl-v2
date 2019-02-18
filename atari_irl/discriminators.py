@@ -225,7 +225,7 @@ class AtariAIRL:
                 accuracy=acc,
                 score=np.mean(score)
             ))
-            if it % int(self.max_itrs / 5) == 0:
+            if it % int(self.max_itrs / 5) == 0 or it == self.max_itrs - 1:
                 print(f'\t{it}/{self.max_itrs}')
                 mean_loss = np.mean(stacker.loss)
                 print('\tLoss:%f' % mean_loss)
@@ -245,12 +245,14 @@ class AtariAIRL:
 
     def eval(
         self,
-        obs: np.ndarray, acts: np.ndarray,
+        obs: np.ndarray,
+        acts: np.ndarray,
         next_obs: Optional[np.ndarray]=None,
         log_probs: Optional[np.ndarray]=None,
         **kwargs
     ) -> np.ndarray:
-        print("Using score from discriminator")
+        if len(acts.shape) == 1:
+            acts = one_hot(acts, self.dU)
         if self.score_discrim:
             obs, obs_next, acts, path_probs = (
                 self.modify_obs(obs),

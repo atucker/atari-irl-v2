@@ -190,7 +190,7 @@ class IRL:
                 itr=i,
                 log_freq=log_freq
             )
-            if i % 128 == 0:
+            if i % 1024 == 0:
                 self.discriminator.fit(
                     buffer=self.buffer,
                     policy=self.policy,
