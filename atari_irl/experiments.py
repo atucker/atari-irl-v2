@@ -34,19 +34,22 @@ class Configuration:
     default_values = {}
     attrs_exclude_from_key = set()
 
-    def __init__(self, parser: Optional[argparse.ArgumentParser], **overrides: Dict[str, Any]) -> None:
+    def __init__(self, **overrides: Dict[str, Any]) -> None:
         self.items = dict(**self.default_values)
-        if parser:
-            for key in self.default_values.keys():
-                self.items[key] = getattr(parser, key)
         for key, val in overrides.items():
             self.items[key] = val
 
     @staticmethod
     def add_args(parser: argparse.ArgumentParser) -> None:
         pass
+    
+    @classmethod
+    def get_args_from_parser(cls, parser: argparse.ArgumentParser) -> Dict[str, Any]:
+        return dict(*[
+            (key, getattr(parser, key)) for key in cls.default_values.keys()
+        ])
 
-    def __get__(self, key: str) -> Any:
+    def __getattr__(self, key: str) -> Any:
         return self.items[key]
 
     @property

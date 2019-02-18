@@ -277,6 +277,7 @@ class QTrainer(PolicyTrainer, TfObject):
         TfObject.__init__(
             self,
             NetworkKwargsConfiguration(
+                env=env,
                 network=network,
                 network_kwargs=network_kwargs
             )
@@ -370,7 +371,7 @@ class QTrainer(PolicyTrainer, TfObject):
             # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
             obses_t, actions, rewards, obses_tp1, dones = buffer.sample_batch(
                 'obs', 'acts', 'rewards', 'next_obs', 'next_dones',
-                batch_size=self.batch_size
+                batch_size=self.trn_cfg.batch_size
             )
             weights, batch_idxes = np.ones_like(rewards), None
             td_errors = self.train_model(obses_t, actions, rewards, obses_tp1, dones, weights)
