@@ -232,7 +232,7 @@ class QInfo(PolicyInfo):
 
 
 class QTrainingConfiguration(Configuration):
-    static_key_values = dict(
+    default_values = dict(
         lr=5e-4,
         gamma=1.0,
         exploration_fraction=0.1,

@@ -91,7 +91,7 @@ class TfObject:
     version = 0
 
     def __init__(self, config, scope_name=''):
-        self.config = config
+        self.tf_obj_config = config
         with tf.variable_scope(scope_name) as scope:
             self.initialize_graph()
             self.scope = scope
@@ -114,15 +114,15 @@ class TfObject:
     # Methods to save/restore from a cache
     @property
     def key(self):
-        return f"tf_obj-{self.class_registration_name}-v{self.version};config-{self.config.key}"
+        return f"tf_obj-{self.class_registration_name}-v{self.version};config-{self.tf_obj_config.key}"
 
     def store_in_cache(self, cache: Cache) -> None:
-        cache[self.key] = (self.class_registration_name, self.config, self.values)
+        cache[self.key] = (self.class_registration_name, self.tf_obj_config, self.values)
 
     def restore_values_from_cache(self, cache: Cache) -> None:
         (class_name, config_from_cache, values) = cache[self.key]
         assert class_name == self.class_registration_name
-        assert config_from_cache == self.config
+        assert config_from_cache == self.tf_obj_config
         self.restore(values)
 
     # Methods for reconstructing an object from purely the cache
