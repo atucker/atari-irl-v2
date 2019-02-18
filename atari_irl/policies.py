@@ -334,7 +334,7 @@ class QTrainer(PolicyTrainer):
         a_logprobs[a_logprobs.astype(np.bool)] == logp_argmax
         return a_logprobs
 
-    def train_step(self, buffer: Buffer[QInfo], discriminator: AtariAIRL, itr: int, log_freq=1000) -> None:
+    def train_step(self, buffer: Buffer[QInfo], itr: int, log_freq=1000) -> None:
         assert itr == self.t
         t = itr
         

@@ -194,7 +194,6 @@ class IRL:
             if self.mask_rewards: assert np.isclose(samples.rewards.sum(), 0.0)
             self.policy.train_step(
                 buffer=self.buffer,
-                discriminator=self.discriminator,
                 itr=i,
                 log_freq=log_freq
             )
