@@ -111,7 +111,7 @@ class Sampler:
 
 
 class IRL:
-    def __init__(self, args, fname=None):
+    def __init__(self, args, fname=None, ablation=None):
         self.env = environments.make_vec_env(
             env_name='PLECatcher-v0',
             seed=0,
@@ -120,14 +120,22 @@ class IRL:
         )
 
         self.mask_rewards = True
+        self.train_discriminator = True
+        build_discriminator = True
 
-        self.discriminator = discriminators.AtariAIRL(
+        if ablation == 'train_rl':
+            self.mask_rewards = False
+            self.train_discriminator = False
+            build_discriminator = False
+
+        self.discriminator = None if not build_discriminator else discriminators.AtariAIRL(
             env=self.env,
             expert_buffer=experts.ExpertBuffer.from_trajectories(pickle.load(open(fname, 'rb')))
         )
 
         self.buffer = buffers.ViewBuffer[policies.QInfo](
-            self.discriminator, policies.QInfo
+            self.discriminator,
+            policies.QInfo
         )
         self.policy = policies.QTrainer(
             env=self.env,
@@ -190,7 +198,7 @@ class IRL:
                 itr=i,
                 log_freq=log_freq
             )
-            if i % 1024 == 0:
+            if i % 1024 == 0 and self.train_discriminator:
                 self.discriminator.fit(
                     buffer=self.buffer,
                     policy=self.policy,

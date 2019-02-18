@@ -204,12 +204,13 @@ class Buffer(Generic[T]):
             sampled_keys[key] = ans
             return ans
 
-        for key in keys:
-            if key != 'rewards':
-                get_key(key)
+        if self.discriminator is not None:
+            for key in keys:
+                if key != 'rewards':
+                    get_key(key)
 
-        if 'rewards' in keys:
-            sampled_keys['rewards'] = self.discriminator.eval(**sampled_keys)
+            if 'rewards' in keys:
+                sampled_keys['rewards'] = self.discriminator.eval(**sampled_keys)
 
         ans = tuple(get_key(key) for key in keys)
         
