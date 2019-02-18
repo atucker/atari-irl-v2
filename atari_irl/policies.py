@@ -336,13 +336,10 @@ class QTrainer(PolicyTrainer):
         
         if t > self.learning_starts and t % self.train_freq == 0:
             # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
-            obses_t, actions, _rewards, obses_tp1, dones = buffer.sample_batch(
+            obses_t, actions, rewards, obses_tp1, dones = buffer.sample_batch(
                 'obs', 'acts', 'rewards', 'next_obs', 'next_dones',
                 batch_size=self.batch_size
             )
-            assert np.isclose(_rewards.sum(), 0)
-            rewards = discriminator.eval(obs=obses_t, acts=one_hot(actions, discriminator.dU))
-
             weights, batch_idxes = np.ones_like(rewards), None
             td_errors = self.train_model(obses_t, actions, rewards, obses_tp1, dones, weights)
 

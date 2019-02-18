@@ -8,6 +8,7 @@ T = TypeVar('T')
 class DummyBuffer(Buffer[T]):
     def __init__(self):
         super().__init__(
+            discriminator=None,
             time_shape=None,
             policy_info=None,
             env_info=None,
@@ -25,8 +26,9 @@ class DummyBuffer(Buffer[T]):
         
 
 class FlatBuffer(Buffer[T]):
-    def __init__(self, policy_info_class):
+    def __init__(self, discriminator, policy_info_class):
         super().__init__(
+            discriminator=discriminator,
             time_shape=None,
             policy_info=None,
             env_info=None,
@@ -167,8 +169,9 @@ class BatchedList:
      
     
 class ViewBuffer(Buffer[T]):
-    def __init__(self, policy_info_class):
+    def __init__(self, discriminator, policy_info_class):
         super().__init__(
+            discriminator=discriminator,
             time_shape=None,
             policy_info=None,
             env_info=EnvInfo(
@@ -189,6 +192,7 @@ class ViewBuffer(Buffer[T]):
             if field != 'time_shape':
                 policy_info_dict[field] = BatchedList()
 
+        self.discriminator = discriminator
         self.policy_info = self.policy_info_class(**policy_info_dict)
         
     def add_batch(self, samples: Batch, debug=False) -> None:
@@ -240,4 +244,3 @@ class ViewBuffer(Buffer[T]):
     @property
     def lprobs(self):
         return self.acts
-        

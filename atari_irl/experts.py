@@ -42,6 +42,7 @@ class ExpertBuffer(Buffer[PolicyInfo]):
         time_shape = TimeShape(T=T, num_envs=None)
         
         super().__init__(
+            discriminator=None,
             time_shape=time_shape,
             env_info=EnvInfo(
                 obs=obs,

@@ -247,8 +247,10 @@ class AtariAIRL:
         self,
         obs: np.ndarray, acts: np.ndarray,
         next_obs: Optional[np.ndarray]=None,
-        log_probs: Optional[np.ndarray]=None
+        log_probs: Optional[np.ndarray]=None,
+        **kwargs
     ) -> np.ndarray:
+        print("Using score from discriminator")
         if self.score_discrim:
             obs, obs_next, acts, path_probs = (
                 self.modify_obs(obs),

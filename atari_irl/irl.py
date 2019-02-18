@@ -111,7 +111,7 @@ class Sampler:
 
 
 class IRL:
-    def __init__(self, args, fname):
+    def __init__(self, args, fname=None):
         self.env = environments.make_vec_env(
             env_name='PLECatcher-v0',
             seed=0,
@@ -119,16 +119,20 @@ class IRL:
             num_envs=1
         )
 
+        self.mask_rewards = True
+
         self.discriminator = discriminators.AtariAIRL(
             env=self.env,
             expert_buffer=experts.ExpertBuffer.from_trajectories(pickle.load(open(fname, 'rb')))
         )
-        self.buffer = buffers.ViewBuffer[policies.QInfo](policies.QInfo)
+
+        self.buffer = buffers.ViewBuffer[policies.QInfo](
+            self.discriminator, policies.QInfo
+        )
         self.policy = policies.QTrainer(
             env=self.env,
             network='conv_only'
         )
-
         self.sampler = Sampler(
             env=self.env,
             policy=self.policy
@@ -142,7 +146,12 @@ class IRL:
         batch = self.sampler.sample_batch(self.batch_t)
         self.total_episodes += len(batch.env_info.epinfobuf)
         self.eval_epinfobuf.extend(batch.env_info.epinfobuf)
-        
+
+        if self.mask_rewards:
+            rewards = np.zeros(batch.env_info.rewards.shape)
+        else:
+            rewards = batch.env_info.rewards
+
         return Batch(
             time_shape=batch.time_shape,
             sampler_state=batch.sampler_state,
@@ -150,7 +159,7 @@ class IRL:
                 time_shape=batch.env_info.time_shape,
                 obs=batch.env_info.obs,
                 next_obs=batch.env_info.next_obs,
-                rewards=np.zeros(batch.env_info.rewards.shape),
+                rewards=rewards,
                 dones=batch.env_info.dones,
                 next_dones=batch.env_info.next_dones,
                 epinfobuf=[]
@@ -174,6 +183,7 @@ class IRL:
         for i in range(int(100000)):
             samples = self.obtain_samples()
             self.buffer.add_batch(samples)
+            if self.mask_rewards: assert np.isclose(samples.rewards.sum(), 0.0)
             self.policy.train(
                 buffer=self.buffer,
                 discriminator=self.discriminator,
@@ -190,5 +200,9 @@ class IRL:
                 self.log_performance(i)
 
 
-if __name__ == '__main__':
-    IRL(None).train()
+def main():
+    # train an expert
+    # run the expert to generate trajectories
+    # train an encoder
+    # run IRL
+    pass

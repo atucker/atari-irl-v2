@@ -86,12 +86,14 @@ T = TypeVar('T')
 
 class Buffer(Generic[T]):
     def __init__(
-        self, *, 
+        self, *,
+        discriminator: Any,
         time_shape: Optional[TimeShape],
         policy_info: Optional[T],
         env_info: Optional[EnvInfo],
         sampler_state: Optional[SamplerState]
     ) -> None:
+        self.discriminator = discriminator
         self.time_shape = time_shape
         self.policy_info = policy_info
         self.env_info = env_info
@@ -184,7 +186,12 @@ class Buffer(Generic[T]):
             
         #assert self.shuffle.shape[0] >= batch_size, f"batch size {batch_size} > amount of data {self.time_shape.size}"
         batch_slice = slice(self.sample_idx, self.sample_idx+batch_size)
+        sampled_keys = {}
+
         def get_key(key):
+            if key in sampled_keys:
+                return sampled_keys[key]
+
             ans = getattr(self, key)[self.shuffle[batch_slice]]
             if 'obs' in key:
                 ans = modify_obs(ans)
@@ -193,8 +200,17 @@ class Buffer(Generic[T]):
             if debug:
                 print(f"{key}: {ans.shape}")
             assert ans.shape[0] > 0
+
+            sampled_keys[key] = ans
             return ans
-        
+
+        for key in keys:
+            if key != 'rewards':
+                get_key(key)
+
+        if 'rewards' in keys:
+            sampled_keys['rewards'] = self.discriminator.eval(**sampled_keys)
+
         ans = tuple(get_key(key) for key in keys)
         
         # increment the read index
