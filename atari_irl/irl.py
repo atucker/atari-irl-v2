@@ -192,14 +192,14 @@ class IRL:
             samples = self.obtain_samples()
             self.buffer.add_batch(samples)
             if self.mask_rewards: assert np.isclose(samples.rewards.sum(), 0.0)
-            self.policy.train(
+            self.policy.train_step(
                 buffer=self.buffer,
                 discriminator=self.discriminator,
                 itr=i,
                 log_freq=log_freq
             )
             if i % 1024 == 0 and self.train_discriminator:
-                self.discriminator.fit(
+                self.discriminator.train_step(
                     buffer=self.buffer,
                     policy=self.policy,
                     itr=i

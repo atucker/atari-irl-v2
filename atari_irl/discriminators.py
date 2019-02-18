@@ -146,7 +146,7 @@ class AtariAIRL:
         score = score[:, 0]
         return np.clip((score - self.score_mean) / self.score_std, -3, 3), score
 
-    def fit(self, buffer: Buffer, policy: PolicyTrainer, batch_size=256, lr=1e-3, itr=0, **kwargs):
+    def train_step(self, buffer: Buffer, policy: PolicyTrainer, batch_size=256, lr=1e-3, itr=0, **kwargs):
         if batch_size > buffer.time_shape.size:
             return
         

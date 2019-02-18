@@ -132,7 +132,7 @@ class PPO2Trainer(PolicyTrainer):
         return np.log((probs * acts).sum(axis=1))
     """
 
-    def train(self, buffer: Buffer[PPO2Info], itr: int, log_freq=1000) -> None:
+    def train_step(self, buffer: Buffer[PPO2Info], itr: int, log_freq=1000) -> None:
         tstart = time.time()
         frac = 1.0 - (itr - 1.0) / self.nupdates
         if itr == 0:
@@ -330,7 +330,7 @@ class QTrainer(PolicyTrainer):
         a_logprobs[a_logprobs.astype(np.bool)] == logp_argmax
         return a_logprobs
 
-    def train(self, buffer: Buffer[QInfo], discriminator: AtariAIRL, itr: int, log_freq=1000) -> None:
+    def train_step(self, buffer: Buffer[QInfo], discriminator: AtariAIRL, itr: int, log_freq=1000) -> None:
         assert itr == self.t
         t = itr
         
