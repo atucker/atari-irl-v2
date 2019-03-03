@@ -458,7 +458,7 @@ class QTrainer(PolicyTrainer, TfObject):
         assert itr == self.t
         t = itr
         
-        if t > self.trn_cfg.learning_starts and t % self.trn_cfg.train_freq == 0:
+        if t > self.config.training.learning_starts and t % self.config.training.train_freq == 0:
             # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
             obses_t, actions, rewards, obses_tp1, dones = buffer.sample_batch(
                 'obs', 'acts', 'rewards', 'next_obs', 'next_dones',
@@ -467,7 +467,7 @@ class QTrainer(PolicyTrainer, TfObject):
             weights, batch_idxes = np.ones_like(rewards), None
             td_errors = self.train_model(obses_t, actions, rewards, obses_tp1, dones, weights)
 
-        if t > self.trn_cfg.learning_starts and t % self.trn_cfg.target_network_update_freq == 0:
+        if t > self.config.training.learning_starts and t % self.config.training.target_network_update_freq == 0:
             # Update target network periodically.
             self.update_target()
             
