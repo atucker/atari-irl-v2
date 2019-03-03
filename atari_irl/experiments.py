@@ -35,6 +35,8 @@ class DictCache(Cache):
 class FilesystemCache(Cache):
     def __init__(self, base_dir: str):
         self.base_dir = base_dir
+        if not os.path.exists(self.base_dir):
+            os.mkdir(self.base_dir)
 
     def filename_for_key(self, key):
         return os.path.join(self.base_dir, key)
@@ -69,7 +71,10 @@ class Configuration:
         ])
 
     def __getattr__(self, key: str) -> Any:
-        return self.items[key]
+        if key != 'items' and key in self.items:
+            return self.items[key]
+        else:
+            return super().__getattr__(key)
 
     @property
     def key(self) -> str:
