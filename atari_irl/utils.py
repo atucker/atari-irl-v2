@@ -1,7 +1,6 @@
 import numpy as np
 from typing import Type, NamedTuple, Any, Union
 from collections import OrderedDict
-from .headers  import EnvInfo, PolicyInfo
 
 
 class Stacker:
@@ -9,7 +8,7 @@ class Stacker:
         self.data_cls = other_cls
         self.data = OrderedDict((f, []) for f in self.data_cls._fields)
 
-    def append(self, tup: Union[NamedTuple, EnvInfo, PolicyInfo]) -> None:
+    def append(self, tup: Any) -> None:
         assert isinstance(tup, self.data_cls)
         for f in tup._fields:
             self.data[f].append(getattr(tup, f))
