@@ -250,8 +250,7 @@ class QTrainingConfiguration(Configuration):
 class NetworkKwargsConfiguration(Configuration):
     default_values = dict(
         network='conv_only',
-        network_kwargs={},
-        env=None
+        network_kwargs={}
     )
     attrs_exclude_from_key={'env',}
 
@@ -274,10 +273,10 @@ class QTrainer(PolicyTrainer, TfObject):
         self.debug = None
         self.act = None
 
+        self.env = env
         TfObject.__init__(
             self,
             NetworkKwargsConfiguration(
-                env=env,
                 network=network,
                 network_kwargs=network_kwargs
             )
@@ -301,7 +300,7 @@ class QTrainer(PolicyTrainer, TfObject):
         self.env = env
 
     def initialize_graph(self):
-        env = self.tf_obj_config.env
+        env = self.env
         q_func = deepq.build_q_func(
             self.tf_obj_config.network,
             self.tf_obj_config.network_kwargs

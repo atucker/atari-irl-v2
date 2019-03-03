@@ -111,7 +111,7 @@ class Sampler:
 
 
 class IRL:
-    def __init__(self, args, fname=None, ablation=None):
+    def __init__(self, *, cache=None, expert_trajectory_fname=None, ablation=None):
         self.env = environments.make_vec_env(
             env_name='PLECatcher-v0',
             seed=0,
@@ -130,7 +130,9 @@ class IRL:
 
         self.discriminator = None if not build_discriminator else discriminators.AtariAIRL(
             env=self.env,
-            expert_buffer=experts.ExpertBuffer.from_trajectories(pickle.load(open(fname, 'rb')))
+            expert_buffer=experts.ExpertBuffer.from_trajectories(
+                pickle.load(open(expert_trajectory_fname, 'rb'))
+            )
         )
 
         self.buffer = buffers.ViewBuffer[policies.QInfo](
@@ -146,9 +148,9 @@ class IRL:
             policy=self.policy
         )
 
-        self.cache = experiments.FilesystemCache('test_cache')
+        self.cache = cache if cache is not None else experiments.FilesystemCache('test_cache')
         if self.policy.key in self.cache:
-            print("Restoring policy {self.policy.key} from cache!")
+            print(f"Restoring policy {self.policy.key} from cache!")
             self.policy.restore_values_from_cache(self.cache)
 
         self.eval_epinfobuf = deque(maxlen=100)
@@ -193,7 +195,7 @@ class IRL:
         log_freq = 100
         logger.configure()
         
-        for i in range(int(100000)):
+        for i in range(int(50000)):
             samples = self.obtain_samples()
             self.buffer.add_batch(samples)
             if self.mask_rewards: assert np.isclose(samples.rewards.sum(), 0.0)
@@ -211,10 +213,10 @@ class IRL:
             if i % log_freq == 0:
                 self.log_performance(i)
 
-            if i % 8096 == 0:
+            if i % 4096 == 0:
                 print("Doing a cache roundtrip...")
-                self.policy.store_in_cache(self.cache)
-                self.policy.restore_values_from_cache(self.cache)
+                self.policy.store_in_cache(self.cache, key_mod='_training')
+                self.policy.restore_values_from_cache(self.cache, key_mod='_training')
 
 
 def main():
