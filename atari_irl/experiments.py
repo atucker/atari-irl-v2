@@ -83,7 +83,12 @@ class Configuration:
             for key in self.items.keys()
             if key not in self.attrs_exclude_from_key
         ])
-
+    
+    def __eq__(self, other):
+        if isinstance(other, Configuration):
+            return all(
+                other.items[key] == value for key, value in self.items.items()
+            )
 
 class Context(NamedTuple):
     config: Configuration
