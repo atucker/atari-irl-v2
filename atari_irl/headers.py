@@ -253,6 +253,8 @@ class Batch(NamedTuple):
 
 
 class PolicyTrainer:
+    info_class = None
+
     def __init__(self, env: VecEnv) -> None:
         self.obs_space = env.observation_space
         self.act_space = env.action_space

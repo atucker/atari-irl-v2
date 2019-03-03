@@ -18,6 +18,7 @@ from baselines.ppo2.runner import sf01
 import baselines.deepq
 from baselines.deepq import deepq
 import baselines.common.tf_util as U
+from baselines.common.vec_env import VecEnv
 
 import tensorflow as tf
 
@@ -25,7 +26,11 @@ from .headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
 from .discriminators import AtariAIRL
 from .utils import one_hot
 
+from .utils import Stacker
+from .headers import Batch, EnvInfo, SamplerState
+
 from .experiments import TfObject, Configuration
+from .buffers import ViewBuffer
 
 
 class EnvSpec(NamedTuple):
@@ -36,6 +41,85 @@ class EnvSpec(NamedTuple):
     """
     observation_space: gym.Space
     action_space: gym.Space
+
+
+class Sampler:
+    def __init__(self, env: VecEnv, policy: PolicyTrainer) -> None:
+        self.env = env
+        self.num_envs = env.num_envs
+        self.policy = policy
+        self.obs = None
+        self.dones = None
+        self.reset()
+
+    def reset(self) -> None:
+        self.obs = self.env.reset()
+        self.dones = np.zeros(self.num_envs).astype(np.bool)
+
+    def sample_batch(self, rollout_t: int, show=False) -> Batch:
+        assert self.obs is not None, "Need to call reset"
+        assert issubclass(self.policy.info_class, PolicyInfo)
+
+        env_info_stacker = Stacker(EnvInfo)
+        policy_info_stacker = Stacker(self.policy.info_class)
+
+        time_step = TimeShape(num_envs=self.num_envs)
+        time_shape = TimeShape(num_envs=self.num_envs, T=rollout_t)
+
+        for _ in range(rollout_t):
+            policy_step = self.policy.get_actions(Observations(
+                time_shape=time_step,
+                observations=self.obs
+            ))
+            policy_info_stacker.append(policy_step)
+            actions = policy_step.actions
+
+            obs_copy = self.obs.copy()
+            dones_copy = self.dones.copy()
+
+            self.obs[:], rewards, self.dones, epinfos = self.env.step(actions)
+            if show:
+                self.env.render()
+
+            env_info_stacker.append(EnvInfo(
+                time_shape=time_step,
+                obs=obs_copy,
+                next_obs=self.obs.copy(),
+                rewards=rewards,
+                dones=dones_copy,
+                next_dones=self.dones.copy(),
+                epinfobuf=[
+                    info.get('episode') for info in epinfos if info.get('episode')
+                ]
+            ))
+
+        return Batch(
+            time_shape=time_shape,
+            sampler_state=SamplerState(
+                obs=self.obs.copy(),
+                dones=self.dones.copy()
+            ),
+            env_info=EnvInfo(
+                time_shape=time_shape,
+                obs=np.array(env_info_stacker.obs),
+                next_obs=np.array(env_info_stacker.next_obs),
+                rewards=np.array(env_info_stacker.rewards),
+                dones=np.array(env_info_stacker.dones),
+                next_dones=np.array(env_info_stacker.next_dones),
+                epinfobuf=[_ for l in env_info_stacker.epinfobuf for _ in l]
+            ),
+            # TODO(Aaron): Make this a cleaner method, probably of stacker
+            # where each field can define a lambda for how to process it
+            # instead of assuming that we just use np.array
+            policy_info=self.policy.info_class(
+                time_shape=time_shape,
+                **dict(
+                    (field, np.array(getattr(policy_info_stacker, field)))
+                    for field in self.policy.info_class._fields
+                    if field != 'time_shape'
+                )
+            )
+        )
 
 
 class PPO2Info(PolicyInfo):
