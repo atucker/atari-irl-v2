@@ -111,7 +111,13 @@ class Sampler:
 
 
 class IRL:
-    def __init__(self, *, cache=None, expert_trajectory_fname=None, ablation=None):
+    def __init__(
+            self,
+            *,
+            cache=None,
+            expert_trajectory_fname=None,
+            ablation=None
+    ):
         self.env = environments.make_vec_env(
             env_name='PLECatcher-v0',
             seed=0,

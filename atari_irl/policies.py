@@ -250,9 +250,20 @@ class QTrainingConfiguration(Configuration):
 class NetworkKwargsConfiguration(Configuration):
     default_values = dict(
         network='conv_only',
-        network_kwargs={}
+        # Our life is much easier if we often just use the default arguments
+        # for baselines function creation, and so we'll keep this here
+        # TODO(Aaron): serialize the baselines version as part of the cache
+        network_kwargs={},
+        serialization_scheme='overrides_baselines_default_kwargs'
     )
-    attrs_exclude_from_key={'env',}
+
+
+class QConfig(Configuration):
+    default_values = dict(
+        training_cfg=QTrainingConfiguration(),
+        network_cfg=NetworkKwargsConfiguration()
+    )
+
 
 
 class QTrainer(PolicyTrainer, TfObject):

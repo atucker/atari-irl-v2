@@ -1,5 +1,5 @@
 import inspect
-from typing import Dict, Any, Type, List, NamedTuple, Optional
+from typing import Dict, Any, Type, List, NamedTuple, Optional, Set
 import argparse
 import tensorflow as tf
 import numpy as np
@@ -35,8 +35,6 @@ class DictCache(Cache):
 class FilesystemCache(Cache):
     def __init__(self, base_dir: str):
         self.base_dir = base_dir
-        if not os.path.exists(self.base_dir):
-            os.mkdir(self.base_dir)
 
     def filename_for_key(self, key):
         return os.path.join(self.base_dir, key)
@@ -52,8 +50,9 @@ class FilesystemCache(Cache):
 
 
 class Configuration:
-    default_values = {}
-    attrs_exclude_from_key = set()
+    #TODO(Aaron): Actually make the default values immutable
+    default_values: Dict[str, Any] = {}
+    attrs_exclude_from_key: Set[str] = set()
 
     def __init__(self, **overrides: Dict[str, Any]) -> None:
         self.items = dict(**self.default_values)
@@ -71,24 +70,22 @@ class Configuration:
         ])
 
     def __getattr__(self, key: str) -> Any:
-        if key != 'items' and key in self.items:
-            return self.items[key]
-        else:
-            return super().__getattr__(key)
+        return self.items[key]
 
     @property
     def key(self) -> str:
-        return ','.join([
-            f"{key}={getattr(self, key)}"
-            for key in self.items.keys()
-            if key not in self.attrs_exclude_from_key
-        ])
-    
-    def __eq__(self, other):
-        if isinstance(other, Configuration):
-            return all(
-                other.items[key] == value for key, value in self.items.items()
-            )
+        def key_str(obj, root=''):
+            root_prefix = f"{root}." if root else ''
+            if isinstance(obj, Configuration) or isinstance(obj, dict):
+                return ','.join([
+                    f"{root_prefix}{key}={key_str(getattr(self, key), root=root_prefix+key)}"
+                    for key in self.items.keys()
+                    if key not in self.attrs_exclude_from_key
+                ])
+            else:
+                return str(obj)
+        return key_str(self)
+
 
 class Context(NamedTuple):
     config: Configuration
