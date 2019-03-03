@@ -260,10 +260,9 @@ class NetworkKwargsConfiguration(Configuration):
 
 class QConfig(Configuration):
     default_values = dict(
-        training_cfg=QTrainingConfiguration(),
-        network_cfg=NetworkKwargsConfiguration()
+        training=QTrainingConfiguration(),
+        network=NetworkKwargsConfiguration()
     )
-
 
 
 class QTrainer(PolicyTrainer, TfObject):
@@ -277,7 +276,6 @@ class QTrainer(PolicyTrainer, TfObject):
             **network_kwargs
     ) -> None:
         PolicyTrainer.__init__(self, env)
-        self.trn_cfg = QTrainingConfiguration()
 
         self.train_model = None
         self.update_target = None
@@ -285,22 +283,21 @@ class QTrainer(PolicyTrainer, TfObject):
         self.act = None
 
         self.env = env
-        TfObject.__init__(
-            self,
-            NetworkKwargsConfiguration(
+        TfObject.__init__(self, QConfig(
+            network_cfg=NetworkKwargsConfiguration(
                 network=network,
                 network_kwargs=network_kwargs
             )
-        )
+        ))
 
         # Create the replay buffer
         self.beta_schedule = None
 
         # Create the schedule for exploration starting from 1.
         self.exploration = deepq.LinearSchedule(
-            schedule_timesteps=int(self.trn_cfg.exploration_fraction * self.trn_cfg.total_timesteps),
+            schedule_timesteps=int(self.config.training.exploration_fraction * self.config.training.total_timesteps),
             initial_p=1.0,
-            final_p=self.trn_cfg.exploration_final_eps
+            final_p=self.config.training.exploration_final_eps
         )
 
         U.initialize()
@@ -313,8 +310,8 @@ class QTrainer(PolicyTrainer, TfObject):
     def initialize_graph(self):
         env = self.env
         q_func = deepq.build_q_func(
-            self.tf_obj_config.network,
-            self.tf_obj_config.network_kwargs
+            self.config.network.network,
+            self.config.network.network_kwargs
         )
         observation_space = env.observation_space
 
@@ -325,10 +322,10 @@ class QTrainer(PolicyTrainer, TfObject):
             make_obs_ph=make_obs_ph,
             q_func=q_func,
             num_actions=env.action_space.n,
-            optimizer=tf.train.AdamOptimizer(learning_rate=self.trn_cfg.lr),
-            gamma=self.trn_cfg.gamma,
+            optimizer=tf.train.AdamOptimizer(learning_rate=self.config.training.trn_cfg.lr),
+            gamma=self.config.training.gamma,
             grad_norm_clipping=10,
-            param_noise=self.trn_cfg.param_noise
+            param_noise=self.config.training.param_noise
         )
         assert 'q_values' in self.debug
 

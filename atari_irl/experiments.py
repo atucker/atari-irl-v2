@@ -54,7 +54,7 @@ class Configuration:
     default_values: Dict[str, Any] = {}
     attrs_exclude_from_key: Set[str] = set()
 
-    def __init__(self, **overrides: Dict[str, Any]) -> None:
+    def __init__(self, **overrides: Any) -> None:
         self.items = dict(**self.default_values)
         for key, val in overrides.items():
             self.items[key] = val
@@ -125,7 +125,7 @@ class TfObject:
     version = 0
 
     def __init__(self, config, scope_name=''):
-        self.tf_obj_config = config
+        self.config = config
         with tf.variable_scope(scope_name) as scope:
             self.initialize_graph()
             self.scope = scope
@@ -148,15 +148,15 @@ class TfObject:
     # Methods to save/restore from a cache
     @property
     def key(self):
-        return f"tf_obj-{self.class_registration_name}-v{self.version};config-{self.tf_obj_config.key}"
+        return f"tf_obj-{self.class_registration_name}-v{self.version};config-{self.config.key}"
 
     def store_in_cache(self, cache: Cache, key_mod='') -> None:
-        cache[self.key + key_mod] = (self.class_registration_name, self.tf_obj_config, self.values)
+        cache[self.key + key_mod] = (self.class_registration_name, self.config, self.values)
 
     def restore_values_from_cache(self, cache: Cache, key_mod='') -> None:
         (class_name, config_from_cache, values) = cache[self.key + key_mod]
         assert class_name == self.class_registration_name
-        assert config_from_cache == self.tf_obj_config
+        assert config_from_cache == self.config
         self.restore(values)
 
     # Methods for reconstructing an object from purely the cache
