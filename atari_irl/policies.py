@@ -476,5 +476,28 @@ class QTrainer(PolicyTrainer, TfObject):
             
         self.t += 1
 
+    def train(self):
+        log_freq = 100
+        logger.configure()
+
+        sampler = Sampler(env=self.env, policy=self)
+        buffer = ViewBuffer[QInfo](None, QInfo)
+
+        for i in range(int(self.config.training.total_timesteps / self.config.training.batch_size)):
+            batch = sampler.sample_batch(self.config.training.batch_size)
+            buffer.add_batch(batch)
+
+            if i % self.config.training.train_freq == 0:
+                self.train_step(
+                    buffer=buffer,
+                    itr=i,
+                    log_freq=log_freq
+                )
+
+            if i % 4096 == 0:
+                print("Doing a cache roundtrip...")
+                self.store_in_cache(self.cache, key_mod='_training')
+                self.restore_values_from_cache(self.cache, key_mod='_training')
+
 
 TfObject.register_cachable_class('QNetwork', QTrainer)
