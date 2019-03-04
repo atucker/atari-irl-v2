@@ -29,7 +29,7 @@ from .utils import one_hot
 from .utils import Stacker
 from .headers import Batch, EnvInfo, SamplerState
 
-from .experiments import TfObject, Configuration
+from .experiments import TfObject, Configuration, FilesystemCache
 from .buffers import ViewBuffer
 
 
@@ -482,9 +482,14 @@ class QTrainer(PolicyTrainer, TfObject):
 
         sampler = Sampler(env=self.env, policy=self)
         buffer = ViewBuffer[QInfo](None, QInfo)
+        cache = FilesystemCache('test_cache')
 
+        total_episodes = 0
+        eval_epinfobuf = []
         for i in range(int(self.config.training.total_timesteps / self.config.training.batch_size)):
             batch = sampler.sample_batch(self.config.training.batch_size)
+            total_episodes += len(batch.env_info.epinfobuf)
+            eval_epinfobuf.extend(batch.env_info.epinfobuf)
             buffer.add_batch(batch)
 
             if i % self.config.training.train_freq == 0:
@@ -494,10 +499,19 @@ class QTrainer(PolicyTrainer, TfObject):
                     log_freq=log_freq
                 )
 
+            if i % log_freq == 0:
+                logger.logkv('itr', i)
+                logger.logkv('cumulative episodes', total_episodes)
+                logger.logkv('timesteps covered', i * self.env.num_envs * self.config.training.batch_size)
+                logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in eval_epinfobuf]))
+                logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in eval_epinfobuf]))
+                logger.logkv('buffer size', buffer.time_shape.size)
+                logger.dumpkvs()
+
             if i % 4096 == 0:
                 print("Doing a cache roundtrip...")
-                self.store_in_cache(self.cache, key_mod='_training')
-                self.restore_values_from_cache(self.cache, key_mod='_training')
+                self.store_in_cache(cache, key_mod='_training')
+                self.restore_values_from_cache(cache, key_mod='_training')
 
 
 TfObject.register_cachable_class('QNetwork', QTrainer)
