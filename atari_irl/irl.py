@@ -139,13 +139,51 @@ class IRL:
 
             if i % 4096 == 0:
                 print("Doing a cache roundtrip...")
-                self.policy.store_in_cache(self.cache, key_mod='_training')
-                self.policy.restore_values_from_cache(self.cache, key_mod='_training')
+                with self.cache.context('training'):
+                    with self.cache.context(str(i)):
+                        self.policy.store_in_cache(self.cache)
+                        self.policy.restore_values_from_cache(self.cache)
 
 
 def main():
-    # train an expert
-    # run the expert to generate trajectories
-    # train an encoder
-    # run IRL
-    pass
+    cache = experiments.FilesystemCache('test_cache')
+    env = environments.make_vec_env(
+        env_name='PLECatcher-v0',
+        seed=0,
+        one_hot_code=False,
+        num_envs=1
+    )
+    with tf.Graph().as_default():
+        with tf.Session() as sess:
+            with cache.context('expert'):
+                policy = policies.QTrainer(
+                    env=env,
+                    network='conv_only',
+                    total_timesteps=100000
+                )
+                policy.cached_train(cache)
+
+            with cache.context('trajectories'):
+                sampler = policies.Sampler(
+                    env=env,
+                    policy=policy
+                )
+                trajectories = sampler.cached_sample_trajectories(cache, one_hot_code=True)
+
+    # TODO(Aaron): Train an encoder
+
+    with tf.Graph().as_default():
+        with tf.Session() as sess:
+            with cache.context('irl'):
+                irl_runner = IRL(
+                    env=env,
+                    cache=cache,
+                    trajectories=trajectories,
+                    policy_args={
+                        'network': 'conv_only'
+                    }
+                )
+                irl_runner.train()
+
+    env.reset()
+    env.close()
