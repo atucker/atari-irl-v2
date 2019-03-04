@@ -66,6 +66,7 @@ class Configuration:
     def __init__(self, **overrides: Any) -> None:
         self.items = dict(**self.default_values)
         for key, val in overrides.items():
+            assert key in self.default_values, f"Unrecognized attribute {key}"
             self.items[key] = val
 
     @staticmethod
@@ -79,22 +80,29 @@ class Configuration:
         ])
 
     def __getattr__(self, key: str) -> Any:
-        return self.items[key]
+        try:
+            return super(Configuration, self).__getattribute__('items')[key]
+        except KeyError:
+            return super(Configuration, self).__getattr__(key)
 
     @property
     def key(self) -> str:
-        def key_str(obj, root=''):
-            root_prefix = f"{root}." if root else ''
-            if isinstance(obj, Configuration) or isinstance(obj, dict):
-                return ','.join([
-                    f"{root_prefix}{key}={key_str(getattr(self, key), root=root_prefix+key)}"
-                    for key in self.items.keys()
-                    if key not in self.attrs_exclude_from_key
-                ])
-            else:
-                return str(obj)
-        return key_str(self)
+        return ','.join([
+            f"{key}={str(self.items[key])}"
+            for key in self.items.keys()
+            if key not in self.attrs_exclude_from_key
+        ])
 
+    def __str__(self) -> str:
+        return self.key
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, Configuration):
+            return all(
+                other.items[key] == value for key, value in self.items.items()
+            )
+        else:
+            return False
 
 class Context(NamedTuple):
     config: Configuration
