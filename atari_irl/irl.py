@@ -35,16 +35,13 @@ class IRL:
     def __init__(
             self,
             *,
+            env,
             cache=None,
-            expert_trajectory_fname=None,
-            ablation=None
+            trajectories,
+            policy_args,
+            ablation=None,
     ):
-        self.env = environments.make_vec_env(
-            env_name='PLECatcher-v0',
-            seed=0,
-            one_hot_code=False,
-            num_envs=1
-        )
+        self.env = env
 
         self.mask_rewards = True
         self.train_discriminator = True
@@ -57,9 +54,7 @@ class IRL:
 
         self.discriminator = None if not build_discriminator else discriminators.AtariAIRL(
             env=self.env,
-            expert_buffer=experts.ExpertBuffer.from_trajectories(
-                pickle.load(open(expert_trajectory_fname, 'rb'))
-            )
+            expert_buffer=experts.ExpertBuffer.from_trajectories(trajectories)
         )
 
         self.buffer = buffers.ViewBuffer[policies.QInfo](
@@ -68,7 +63,7 @@ class IRL:
         )
         self.policy = policies.QTrainer(
             env=self.env,
-            network='conv_only'
+            **policy_args
         )
         self.sampler = policies.Sampler(
             env=self.env,
@@ -147,7 +142,6 @@ class IRL:
 
 
 def main():
-
     # train an expert
     # run the expert to generate trajectories
     # train an encoder

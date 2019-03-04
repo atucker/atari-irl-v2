@@ -1,5 +1,5 @@
 import inspect
-from typing import Dict, Any, Type, List, NamedTuple, Optional, Set
+from typing import Dict, Any, Type, List, NamedTuple, Optional, Set, Tuple
 import argparse
 import tensorflow as tf
 import numpy as np
@@ -37,6 +37,8 @@ class DictCache(Cache):
 class FilesystemCache(Cache):
     def __init__(self, base_dir: str):
         self.base_dir = base_dir
+        if not os.path.exists(self.base_dir):
+            os.mkdir(self.base_dir)
 
     def filename_for_key(self, key):
         if isinstance(key, tuple):
@@ -167,11 +169,14 @@ class TfObject:
     def key(self):
         return f"tf_obj-{self.class_registration_name}-v{self.version};config-{self.config.key}"
 
+    def modified_key(self, modifier: str) -> Tuple[str, str]:
+        return self.key, modifier
+
     def store_in_cache(self, cache: Cache, key_mod='') -> None:
-        cache[(self.key, key_mod)] = (self.class_registration_name, self.config, self.values)
+        cache[self.modified_key(key_mod)] = (self.class_registration_name, self.config, self.values)
 
     def restore_values_from_cache(self, cache: Cache, key_mod='') -> None:
-        (class_name, config_from_cache, values) = cache[(self.key, key_mod)]
+        (class_name, config_from_cache, values) = cache[self.modified_key(key_mod)]
         assert class_name == self.class_registration_name
         assert config_from_cache == self.config
         self.restore(values)
@@ -191,12 +196,12 @@ class TfObject:
         return initialized_object
 
     # Method for automatically training a model or retrieving it from the cache
-    def cached_train(self, cache: Cache) -> 'TfObject':
-        if self.key in cache:
-            self.restore_values_from_cache(cache)
+    def cached_train(self, cache: Cache, key_mod='') -> 'TfObject':
+        if self.modified_key(key_mod) in cache:
+            self.restore_values_from_cache(cache, key_mod)
         else:
             self.train()
-            self.store_in_cache(cache)
+            self.store_in_cache(cache, key_mod)
         return self
 
     def initialize_graph(self):

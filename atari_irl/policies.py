@@ -121,9 +121,66 @@ class Sampler:
             )
         )
 
+    def sample_trajectories(self, num_trajectories=10, render=False, one_hot_code=False):
+        completed_trajectories = []
+        observations = [[] for _ in range(self.env.num_envs)]
+        actions = [[] for _ in range(self.env.num_envs)]
+
+        time_step = TimeShape(num_envs=self.num_envs)
+
+        obs = self.env.reset()
+        while len(completed_trajectories) < num_trajectories:
+            policy_step = self.policy.get_actions(Observations(
+                time_shape=time_step,
+                observations=self.obs
+            ))
+            acts = policy_step.actions
+
+            # We append observation, actions tuples here, since they're defined now
+            for i, (o, a) in enumerate(zip(obs, acts)):
+                observations[i].append(o)
+                actions[i].append(a)
+
+            # Figure out our consequences
+            obs, _, dones, _ = self.env.step(acts)
+            if render:
+                self.env.render()
+
+            # If we're done, then append that trajectory and restart
+            for i, done in enumerate(dones):
+                if done:
+                    completed_trajectories.append({
+                        'observations': np.array(observations[i]).astype(np.float16),
+                        'actions': one_hot(actions[i], self.env.action_space.n) if one_hot_code else np.vstack(actions[i]),
+                    })
+                    observations[i] = []
+                    actions[i] = []
+
+        np.random.shuffle(completed_trajectories)
+        return completed_trajectories[:num_trajectories]
+
+    def cached_sample_trajectories(self, cache, *, num_trajectories=10, render=False, one_hot_code=False, key_mod=''):
+        key = (
+            self.policy.key + f';trajectories:num_trajectories={num_trajectories},one_hot={one_hot_code}',
+            key_mod
+        )
+        if key not in cache:
+            print("Sampling Trajectories!")
+            cache[key] = self.sample_trajectories(
+                num_trajectories=num_trajectories,
+                render=render,
+                one_hot_code=one_hot_code
+            )
+            print(f"Stored trajectories in {key}")
+        else:
+            print(f"Restoring trajectories from {key}")
+
+        return cache[key]
+
 
 class PPO2Info(PolicyInfo):
     _fields = ('time_shape', 'actions', 'values', 'neglogpacs')
+
     def __init__(
         self, *,
         time_shape: TimeShape,
@@ -357,6 +414,7 @@ class QTrainer(PolicyTrainer, TfObject):
             self,
             env: VecEnv,
             network: str,
+            total_timesteps=100000,
             **network_kwargs
     ) -> None:
         PolicyTrainer.__init__(self, env)
@@ -368,6 +426,9 @@ class QTrainer(PolicyTrainer, TfObject):
 
         self.env = env
         TfObject.__init__(self, QConfig(
+            training=QTrainingConfiguration(
+                total_timesteps=total_timesteps
+            ),
             network=NetworkKwargsConfiguration(
                 network=network,
                 network_kwargs=network_kwargs
@@ -477,6 +538,7 @@ class QTrainer(PolicyTrainer, TfObject):
         self.t += 1
 
     def train(self):
+        print(f"Training Q Learning policy with key {self.key}")
         log_freq = 100
         logger.configure()
 
@@ -486,8 +548,8 @@ class QTrainer(PolicyTrainer, TfObject):
 
         total_episodes = 0
         eval_epinfobuf = []
-        for i in range(int(self.config.training.total_timesteps / self.config.training.batch_size)):
-            batch = sampler.sample_batch(self.config.training.batch_size)
+        for i in range(int(self.config.training.total_timesteps)):
+            batch = sampler.sample_batch(1)
             total_episodes += len(batch.env_info.epinfobuf)
             eval_epinfobuf.extend(batch.env_info.epinfobuf)
             buffer.add_batch(batch)
@@ -502,7 +564,7 @@ class QTrainer(PolicyTrainer, TfObject):
             if i % log_freq == 0:
                 logger.logkv('itr', i)
                 logger.logkv('cumulative episodes', total_episodes)
-                logger.logkv('timesteps covered', i * self.env.num_envs * self.config.training.batch_size)
+                logger.logkv('timesteps covered', i * self.env.num_envs)
                 logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in eval_epinfobuf]))
                 logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in eval_epinfobuf]))
                 logger.logkv('buffer size', buffer.time_shape.size)
