@@ -5,6 +5,8 @@ import tensorflow as tf
 import numpy as np
 import joblib
 import os.path
+import hashlib
+
 
 
 class Cache:
@@ -37,7 +39,14 @@ class FilesystemCache(Cache):
         self.base_dir = base_dir
 
     def filename_for_key(self, key):
-        return os.path.join(self.base_dir, key)
+        if isinstance(key, tuple):
+            key, mod = key
+        else:
+            mod = ''
+        m = hashlib.md5()
+        m.update(key.encode('utf-8'))
+        hash = m.hexdigest()[:64]
+        return os.path.join(self.base_dir, hash + mod)
 
     def __getitem__(self, key: str) -> Any:
         return joblib.load(self.filename_for_key(key))
@@ -151,10 +160,10 @@ class TfObject:
         return f"tf_obj-{self.class_registration_name}-v{self.version};config-{self.config.key}"
 
     def store_in_cache(self, cache: Cache, key_mod='') -> None:
-        cache[self.key + key_mod] = (self.class_registration_name, self.config, self.values)
+        cache[(self.key, key_mod)] = (self.class_registration_name, self.config, self.values)
 
     def restore_values_from_cache(self, cache: Cache, key_mod='') -> None:
-        (class_name, config_from_cache, values) = cache[self.key + key_mod]
+        (class_name, config_from_cache, values) = cache[(self.key, key_mod)]
         assert class_name == self.class_registration_name
         assert config_from_cache == self.config
         self.restore(values)
