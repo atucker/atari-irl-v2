@@ -159,11 +159,9 @@ class Sampler:
         np.random.shuffle(completed_trajectories)
         return completed_trajectories[:num_trajectories]
 
-    def cached_sample_trajectories(self, cache, *, num_trajectories=10, render=False, one_hot_code=False, key_mod=''):
-        key = (
-            self.policy.key + f';trajectories:num_trajectories={num_trajectories},one_hot={one_hot_code}',
-            key_mod
-        )
+    def cached_sample_trajectories(self, cache, *, num_trajectories=10, render=False, one_hot_code=False):
+        key = self.policy.key + f';trajectories:num_trajectories={num_trajectories},one_hot={one_hot_code}'
+
         if key not in cache:
             print("Sampling Trajectories!")
             cache[key] = self.sample_trajectories(
@@ -572,8 +570,10 @@ class QTrainer(PolicyTrainer, TfObject):
 
             if i % 4096 == 0:
                 print("Doing a cache roundtrip...")
-                self.store_in_cache(cache, key_mod='_training')
-                self.restore_values_from_cache(cache, key_mod='_training')
+                with cache.context('training'):
+                    with cache.context(str(i)):
+                        self.store_in_cache(cache)
+                        self.restore_values_from_cache(cache)
 
 
 TfObject.register_cachable_class('QNetwork', QTrainer)

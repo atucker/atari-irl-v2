@@ -8,8 +8,10 @@ import os.path
 import hashlib
 
 
-
 class Cache:
+    def __init__(self):
+        self.context_stack = []
+
     def __getitem__(self, key: str) -> Any:
         raise NotImplemented()
 
@@ -18,37 +20,51 @@ class Cache:
 
     def __setitem__(self, key: str, value: Any) -> None:
         raise NotImplemented()
+
+    def context(cache, name):
+        class CacheContext:
+            def __init__(self):
+                self.name = name
+
+            def __enter__(self):
+                cache.context_stack.append(self.name)
+
+            def __exit__(self, type, value, traceback):
+                cache.context_stack.pop()
+
+        return CacheContext()
 
 
 class DictCache(Cache):
     def __init__(self):
+        super().__init__()
         self.data = {}
 
+    def _handle_key(self, key):
+        return key + '_' + '.'.join(self.context_stack)
+
     def __getitem__(self, key: str) -> Any:
-        return self.data[key]
+        return self.data[self._handle_key(key)]
 
     def __contains__(self, key: str) -> bool:
-        return key in self.data
+        return self._handle_key(key) in self.data
 
     def __setitem__(self, key: str, value: Any) -> None:
-        self.data[key] = value
+        self.data[self._handle_key(key)] = value
 
 
 class FilesystemCache(Cache):
     def __init__(self, base_dir: str):
+        super().__init__()
         self.base_dir = base_dir
         if not os.path.exists(self.base_dir):
             os.mkdir(self.base_dir)
 
     def filename_for_key(self, key):
-        if isinstance(key, tuple):
-            key, mod = key
-        else:
-            mod = ''
         m = hashlib.md5()
         m.update(key.encode('utf-8'))
-        hash = m.hexdigest()[:64]
-        return os.path.join(self.base_dir, hash + mod)
+        hash = m.hexdigest()[:128]
+        return os.path.join(self.base_dir, '/'.join(self.context_stack + [hash]))
 
     def __getitem__(self, key: str) -> Any:
         return joblib.load(self.filename_for_key(key))
@@ -57,6 +73,12 @@ class FilesystemCache(Cache):
         return os.path.exists(self.filename_for_key(key))
 
     def __setitem__(self, key: str, value: Any) -> None:
+        curdir = self.base_dir
+        for dir in self.context_stack:
+            curdir = os.path.join(curdir, dir)
+            if not os.path.exists(curdir):
+                os.mkdir(curdir)
+
         joblib.dump(value, self.filename_for_key(key))
 
 
@@ -169,14 +191,11 @@ class TfObject:
     def key(self):
         return f"tf_obj-{self.class_registration_name}-v{self.version};config-{self.config.key}"
 
-    def modified_key(self, modifier: str) -> Tuple[str, str]:
-        return self.key, modifier
+    def store_in_cache(self, cache: Cache) -> None:
+        cache[self.key] = (self.class_registration_name, self.config, self.values)
 
-    def store_in_cache(self, cache: Cache, key_mod='') -> None:
-        cache[self.modified_key(key_mod)] = (self.class_registration_name, self.config, self.values)
-
-    def restore_values_from_cache(self, cache: Cache, key_mod='') -> None:
-        (class_name, config_from_cache, values) = cache[self.modified_key(key_mod)]
+    def restore_values_from_cache(self, cache: Cache) -> None:
+        (class_name, config_from_cache, values) = cache[self.key]
         assert class_name == self.class_registration_name
         assert config_from_cache == self.config
         self.restore(values)
@@ -196,12 +215,12 @@ class TfObject:
         return initialized_object
 
     # Method for automatically training a model or retrieving it from the cache
-    def cached_train(self, cache: Cache, key_mod='') -> 'TfObject':
-        if self.modified_key(key_mod) in cache:
-            self.restore_values_from_cache(cache, key_mod)
+    def cached_train(self, cache: Cache) -> 'TfObject':
+        if self.key in cache:
+            self.restore_values_from_cache(cache)
         else:
             self.train()
-            self.store_in_cache(cache, key_mod)
+            self.store_in_cache(cache)
         return self
 
     def initialize_graph(self):
