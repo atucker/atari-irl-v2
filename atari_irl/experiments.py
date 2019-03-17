@@ -6,11 +6,15 @@ import numpy as np
 import joblib
 import os.path
 import hashlib
+import re
 
 
 class Cache:
     def __init__(self):
         self.context_stack = []
+
+    def full_key(self, key):
+        return key + '_' + '.'.join(self.context_stack)
 
     def __getitem__(self, key: str) -> Any:
         raise NotImplemented()
@@ -40,17 +44,14 @@ class DictCache(Cache):
         super().__init__()
         self.data = {}
 
-    def _handle_key(self, key):
-        return key + '_' + '.'.join(self.context_stack)
-
     def __getitem__(self, key: str) -> Any:
-        return self.data[self._handle_key(key)]
+        return self.data[self.full_key(key)]
 
     def __contains__(self, key: str) -> bool:
-        return self._handle_key(key) in self.data
+        return self.full_key(key) in self.data
 
     def __setitem__(self, key: str, value: Any) -> None:
-        self.data[self._handle_key(key)] = value
+        self.data[self.full_key(key)] = value
 
 
 class FilesystemCache(Cache):
@@ -60,17 +61,17 @@ class FilesystemCache(Cache):
         if not os.path.exists(self.base_dir):
             os.mkdir(self.base_dir)
 
-    def filename_for_key(self, key):
+    def full_key(self, key):
         m = hashlib.md5()
         m.update(key.encode('utf-8'))
         hash = m.hexdigest()[:128]
-        return os.path.join(self.base_dir, '/'.join(self.context_stack + [hash]))
+        return os.path.join(self.base_dir, '/'.join(self.context_stack + [hash]) + '.pkl')
 
     def __getitem__(self, key: str) -> Any:
-        return joblib.load(self.filename_for_key(key))
+        return joblib.load(self.full_key(key))
 
     def __contains__(self, key: str) -> bool:
-        return os.path.exists(self.filename_for_key(key))
+        return os.path.exists(self.full_key(key))
 
     def __setitem__(self, key: str, value: Any) -> None:
         curdir = self.base_dir
@@ -79,7 +80,7 @@ class FilesystemCache(Cache):
             if not os.path.exists(curdir):
                 os.mkdir(curdir)
 
-        joblib.dump(value, self.filename_for_key(key))
+        joblib.dump(value, self.full_key(key))
 
 
 class Configuration:
