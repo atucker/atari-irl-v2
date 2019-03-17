@@ -567,7 +567,7 @@ class QTrainer(PolicyTrainer, TfObject):
                 logger.logkv('buffer size', buffer.time_shape.size)
                 logger.dumpkvs()
 
-            if i % 4096 == 0:
+            if i % int(self.config.training.total_timesteps / 10) == 0:
                 print("Doing a cache roundtrip...")
                 with cache.context('training'):
                     with cache.context(str(i)):
