@@ -59,11 +59,16 @@ class IRL:
             expert_buffer=experts.ExpertBuffer.from_trajectories(trajectories)
         )
 
-        self.buffer = buffers.ViewBuffer[policies.QInfo](
+        policy_class = {
+            'Q': policies.QTrainer,
+            'PPO2': policies.PPO2Trainer
+        }[policy_args.pop('policy_type')]
+
+        self.buffer = buffers.ViewBuffer[policy_class.info_class](
             self.discriminator,
-            policies.QInfo
+            policy_class.info_class
         )
-        self.policy = policies.QTrainer(
+        self.policy = policy_class(
             env=self.env,
             **policy_args
         )
@@ -180,6 +185,7 @@ def main():
                     cache=cache,
                     trajectories=trajectories,
                     policy_args={
+                        'policy_type': 'Q',
                         'network': 'conv_only'
                     }
                 )
