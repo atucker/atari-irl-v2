@@ -176,6 +176,38 @@ class Sampler:
         return cache[key]
 
 
+class NetworkKwargsConfiguration(Configuration):
+    default_values = dict(
+        network='conv_only',
+        # Our life is much easier if we often just use the default arguments
+        # for baselines function creation, and so we'll keep this here
+        # TODO(Aaron): serialize the baselines version as part of the cache
+        network_kwargs={},
+        serialization_scheme='overrides_baselines_default_kwargs'
+    )
+
+
+class PPO2TrainingConfiguration(Configuration):
+    default_values = dict(
+        total_timesteps=10e6,
+        gamma=0.99,
+        lam=0.95,
+        lr=2.5e-4,
+        cliprange=0.1,
+        nsteps=128,
+        nminibatches=4,
+        noptepochs=4,
+        nenvs=8
+    )
+
+
+class PPO2Config(Configuration):
+    default_values = dict(
+        training=PPO2TrainingConfiguration(),
+        network=NetworkKwargsConfiguration()
+    )
+
+
 class PPO2Info(PolicyInfo):
     _fields = ('time_shape', 'actions', 'values', 'neglogpacs')
 
@@ -201,36 +233,42 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             **network_kwargs
     ) -> None:
         super().__init__(env)
-        nenvs = env.num_envs
-        total_timesteps = 10e6
 
-        self.gamma = 0.99
-        self.lam = 0.95
-        self.lr = 2.5e-4
-        self.cliprange = 0.1
-        self.nsteps = 128
-        self.nminibatches = 4
-        self.noptepochs = 4
-        self.nbatch = nenvs * self.nsteps
-        self.nbatch_train = self.nbatch // self.nminibatches
-        self.nupdates = total_timesteps // self.nbatch
+        self.env = env
 
         self.log_interval = 1
         self.save_interval = 0
 
-        self.tfirststart = None
+        TfObject.__init__(self, PPO2Config(
+            training=PPO2TrainingConfiguration(
+                total_timesteps=10e6,
+                nenvs=env.num_envs
+            ),
+            network=NetworkKwargsConfiguration(
+                network=network,
+                network_kwargs=network_kwargs
+            )
+        ))
 
+        self.nbatch = self.config.training.nenvs * self.config.training.nsteps
+        self.nbatch_train = self.nbatch // self.config.training.nminibatches
+        self.nupdates = self.config.training.total_timesteps // self.nbatch
+
+        self.tfirststart = None
+        self.model = None
+
+    def initialize_graph(self):
         self.model = baselines.ppo2.model.Model(
             policy=baselines.common.policies.build_policy(
-                env,
-                network,
-                **network_kwargs
+                self.env,
+                self.config.network.network,
+                **self.config.network.network_kwargs
             ),
-            ob_space=env.observation_space,
-            ac_space=env.action_space,
-            nbatch_act=env.num_envs,
+            ob_space=self.env.observation_space,
+            ac_space=self.env.action_space,
+            nbatch_act=self.env.num_envs,
             nbatch_train=self.nbatch_train,
-            nsteps=self.nsteps,
+            nsteps=self.config.training.nsteps,
             ent_coef=0.01,
             vf_coef=0.5,
             max_grad_norm=0.5
@@ -250,8 +288,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             values=values,
             neglogpacs=neglogpacs
         )
-    
-    """
+
     def get_probabilities_for_obs(self, obs: np.ndarray) -> np.ndarray:
         tm = self.model.train_model
         return tf.get_default_session().run(
@@ -261,17 +298,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
 
     def get_a_logprobs(self, obs: np.ndarray, acts: np.ndarray) -> np.ndarray:
         probs = self.get_probabilities_for_obs(obs)
-        ""
-        utils.batched_call(
-            # needs to be a tuple for the batched call to work
-            lambda obs: (self.get_probabilities_for_obs(obs),),
-            self.model.train_model.X.shape[0].value,
-            (obs,),
-            check_safety=False
-        )[0]
-        ""
         return np.log((probs * acts).sum(axis=1))
-    """
 
     def train_step(self, buffer: Buffer[PPO2Info], itr: int, log_freq=1000) -> None:
         tstart = time.time()
@@ -280,9 +307,9 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             self.tfirststart=tstart
 
         # Calculate the learning rate
-        lrnow = self.lr * frac
+        lrnow = self.config.training.lr * frac
         # Calculate the cliprange
-        cliprangenow = self.cliprange * frac
+        cliprangenow = self.config.training.cliprange * frac
 
         
         # discount/bootstrap off value fn
@@ -294,15 +321,15 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         mb_returns = np.zeros_like(buffer.rewards)
         mb_advs = np.zeros_like(buffer.rewards)
         lastgaelam = 0
-        for t in reversed(range(self.nsteps)):
-            if t == self.nsteps - 1:
+        for t in reversed(range(self.config.training.nsteps)):
+            if t == self.config.training.nsteps - 1:
                 nextnonterminal = 1.0 - buffer.sampler_state.dones
                 nextvalues = last_values
             else:
                 nextnonterminal = 1.0 - buffer.dones[t+1]
                 nextvalues = buffer.policy_info.values[t+1]
-            delta = buffer.rewards[t] + self.gamma * nextvalues * nextnonterminal - buffer.policy_info.values[t]
-            mb_advs[t] = lastgaelam = delta + self.gamma * self.lam * nextnonterminal * lastgaelam
+            delta = buffer.rewards[t] + self.config.training.gamma * nextvalues * nextnonterminal - buffer.policy_info.values[t]
+            mb_advs[t] = lastgaelam = delta + self.config.training.gamma * self.config.training.lam * nextnonterminal * lastgaelam
         mb_returns = mb_advs + buffer.policy_info.values
 
         obs = sf01(buffer.obs)
@@ -317,8 +344,8 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         inds = np.arange(self.nbatch)
         mblossvals = []
 
-        for _ in range(self.noptepochs):
-            assert self.nbatch % self.nminibatches == 0
+        for _ in range(self.config.training.noptepochs):
+            assert self.nbatch % self.config.training.nminibatches == 0
             # Randomize the indexes
             np.random.shuffle(inds)
             # 0 to batch_size with batch_train_size step
@@ -340,7 +367,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             # Calculates if value function is a good predictor of the returns (ev > 1)
             # or if it's just worse than predicting nothing (ev =< 0)
             ev = explained_variance(values, returns)
-            logger.logkv("serial_timesteps", itr * self.nsteps)
+            logger.logkv("serial_timesteps", itr * self.config.training.nsteps)
             logger.logkv("nupdates", itr)
             logger.logkv("total_timesteps", itr * self.nbatch)
             logger.logkv("fps", fps)
@@ -355,6 +382,9 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             savepath = osp.join(checkdir, '%.5i' % itr)
             print('Saving to', savepath)
             self.model.save(savepath)
+
+
+TfObject.register_cachable_class('PPO2Network', PPO2Trainer)
 
 
 class QInfo(PolicyInfo):
@@ -383,17 +413,6 @@ class QTrainingConfiguration(Configuration):
         batch_size=32,
         target_network_update_freq=500,
         prioritized_replay=False
-    )
-
-
-class NetworkKwargsConfiguration(Configuration):
-    default_values = dict(
-        network='conv_only',
-        # Our life is much easier if we often just use the default arguments
-        # for baselines function creation, and so we'll keep this here
-        # TODO(Aaron): serialize the baselines version as part of the cache
-        network_kwargs={},
-        serialization_scheme='overrides_baselines_default_kwargs'
     )
 
 
