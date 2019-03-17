@@ -194,6 +194,10 @@ class TfObject:
 
     def store_in_cache(self, cache: Cache) -> None:
         cache[self.key] = (self.class_registration_name, self.config, self.values)
+        config_fname = cache.full_key(self.key)[:-4] + '_description.txt'
+        with open(config_fname, 'w') as f:
+            for part in re.split('[,;-]', self.key):
+                f.write(part + '\n')
 
     def restore_values_from_cache(self, cache: Cache) -> None:
         (class_name, config_from_cache, values) = cache[self.key]
