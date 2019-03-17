@@ -84,7 +84,7 @@ class IRL:
 
         self.eval_epinfobuf = deque(maxlen=100)
         self.total_episodes = 0
-        self.batch_t = 1
+        self.batch_t = 128
         
     def obtain_samples(self):
         batch = self.sampler.sample_batch(self.batch_t)
@@ -121,7 +121,7 @@ class IRL:
         logger.dumpkvs()
 
     def train(self):
-        log_freq = 100
+        log_freq = 1
         logger.configure()
         
         for i in range(int(50000)):
@@ -156,7 +156,7 @@ def main():
         env_name='PLECatcher-v0',
         seed=0,
         one_hot_code=False,
-        num_envs=1
+        num_envs=8
     )
     with tf.Graph().as_default():
         with tf.Session() as sess:
@@ -185,8 +185,8 @@ def main():
                     cache=cache,
                     trajectories=trajectories,
                     policy_args={
-                        'policy_type': 'Q',
-                        'network': 'conv_only'
+                        'policy_type': 'PPO2',
+                        'network': 'cnn'
                     }
                 )
                 irl_runner.train()

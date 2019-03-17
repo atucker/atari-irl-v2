@@ -196,6 +196,7 @@ class ViewBuffer(Buffer[T]):
         self.policy_info = self.policy_info_class(**policy_info_dict)
         
     def add_batch(self, samples: Batch, debug=False) -> None:
+        super().add_batch(samples)
         assert samples.time_shape.num_envs is not None
         assert samples.time_shape.T is not None
         assert samples.time_shape.batches is None

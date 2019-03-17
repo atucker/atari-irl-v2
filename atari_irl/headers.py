@@ -99,6 +99,7 @@ class Buffer(Generic[T]):
         self.policy_info = policy_info
         self.env_info = env_info
         self.sampler_state = sampler_state
+        self.latest_batch = None
 
     def reshuffle(self):            
         np.random.shuffle(self.shuffle)
@@ -126,6 +127,9 @@ class Buffer(Generic[T]):
     @property
     def next_dones(self):
         return self.env_info.next_dones
+    
+    def add_batch(self, samples):
+        self.latest_batch = samples
     
     def iter_items(self, *keys, start_at=0) -> Iterator:
         TupClass = namedtuple('TupClass', keys)

@@ -82,7 +82,7 @@ class Sampler:
                 self.env.render()
 
             env_info_stacker.append(EnvInfo(
-                time_shape=time_step,
+                time_shape=time_shape,
                 obs=obs_copy,
                 next_obs=self.obs.copy(),
                 rewards=rewards,
@@ -238,26 +238,28 @@ class PPO2Trainer(PolicyTrainer, TfObject):
 
         self.log_interval = 1
         self.save_interval = 0
+        
+        training_config = PPO2TrainingConfiguration(
+            total_timesteps=10e6,
+            nenvs=env.num_envs
+        )
+        self.nbatch = training_config.nenvs * training_config.nsteps
+        self.nbatch_train = self.nbatch // training_config.nminibatches
+        self.nupdates = training_config.total_timesteps // self.nbatch
 
+        self.tfirststart = None
+        self.model = None
+        
         TfObject.__init__(self, PPO2Config(
-            training=PPO2TrainingConfiguration(
-                total_timesteps=10e6,
-                nenvs=env.num_envs
-            ),
+            training=training_config,
             network=NetworkKwargsConfiguration(
                 network=network,
                 network_kwargs=network_kwargs
             )
         ))
 
-        self.nbatch = self.config.training.nenvs * self.config.training.nsteps
-        self.nbatch_train = self.nbatch // self.config.training.nminibatches
-        self.nupdates = self.config.training.total_timesteps // self.nbatch
-
-        self.tfirststart = None
-        self.model = None
-
     def initialize_graph(self):
+        print('initializing!')
         self.model = baselines.ppo2.model.Model(
             policy=baselines.common.policies.build_policy(
                 self.env,
@@ -310,34 +312,35 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         lrnow = self.config.training.lr * frac
         # Calculate the cliprange
         cliprangenow = self.config.training.cliprange * frac
-
+        
+        batch = buffer.latest_batch
         
         # discount/bootstrap off value fn
         last_values = self.model.value(
-            buffer.sampler_state.obs,
+            batch.sampler_state.obs,
             S=None,
-            M=buffer.sampler_state.dones
+            M=batch.sampler_state.dones
         )
-        mb_returns = np.zeros_like(buffer.rewards)
-        mb_advs = np.zeros_like(buffer.rewards)
+        mb_returns = np.zeros_like(batch.rewards)
+        mb_advs = np.zeros_like(batch.rewards)
         lastgaelam = 0
         for t in reversed(range(self.config.training.nsteps)):
             if t == self.config.training.nsteps - 1:
-                nextnonterminal = 1.0 - buffer.sampler_state.dones
+                nextnonterminal = 1.0 - batch.sampler_state.dones
                 nextvalues = last_values
             else:
-                nextnonterminal = 1.0 - buffer.dones[t+1]
-                nextvalues = buffer.policy_info.values[t+1]
-            delta = buffer.rewards[t] + self.config.training.gamma * nextvalues * nextnonterminal - buffer.policy_info.values[t]
+                nextnonterminal = 1.0 - batch.dones[t+1]
+                nextvalues = batch.policy_info.values[t+1]
+            delta = batch.rewards[t] + self.config.training.gamma * nextvalues * nextnonterminal - batch.policy_info.values[t]
             mb_advs[t] = lastgaelam = delta + self.config.training.gamma * self.config.training.lam * nextnonterminal * lastgaelam
-        mb_returns = mb_advs + buffer.policy_info.values
+        mb_returns = mb_advs + batch.policy_info.values
 
-        obs = sf01(buffer.obs)
+        obs = sf01(batch.obs)
         returns = sf01(mb_returns)
-        masks = sf01(buffer.dones)
-        actions = sf01(buffer.acts)
-        values = sf01(buffer.policy_info.values)
-        neglogpacs = sf01(buffer.policy_info.neglogpacs)
+        masks = sf01(batch.dones)
+        actions = sf01(batch.acts)
+        values = sf01(batch.policy_info.values)
+        neglogpacs = sf01(batch.policy_info.neglogpacs)
         
         # Index of each element of batch_size
         # Create the indices array
