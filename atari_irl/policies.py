@@ -535,14 +535,13 @@ class QTrainer(PolicyTrainer, TfObject):
             
         self.t += 1
 
-    def train(self):
+    def train(self, cache):
         print(f"Training Q Learning policy with key {self.key}")
         log_freq = 100
         logger.configure()
 
         sampler = Sampler(env=self.env, policy=self)
         buffer = ViewBuffer[QInfo](None, QInfo)
-        cache = FilesystemCache('test_cache')
 
         total_episodes = 0
         eval_epinfobuf = []

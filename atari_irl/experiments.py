@@ -224,12 +224,12 @@ class TfObject:
         if self.key in cache:
             self.restore_values_from_cache(cache)
         else:
-            self.train()
+            self.train(cache)
             self.store_in_cache(cache)
         return self
 
     def initialize_graph(self):
         pass
 
-    def train(self):
+    def train(self, cache):
         pass
