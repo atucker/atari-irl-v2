@@ -129,36 +129,10 @@ class Configuration:
         else:
             return False
 
+
 class Context(NamedTuple):
     config: Configuration
     cache: Cache
-
-
-class Stage:
-    name = ""
-    version = 0
-    config_class = Configuration
-
-    def __init__(self, args):
-        self.args = args
-
-    @classmethod
-    def add_args(cls, parser: argparse.ArgumentParser):
-        cls.config_class.add_args(parser)
-
-    def run(self, context: Context) -> Any:
-        assert isinstance(context.config, self.config_class)
-        key = f"stage-{self.name};config-{context.config.key};version-{self.version}"
-
-        if key not in context.cache:
-            ans = self.execute(context.config)
-            context.cache[key] = ans
-            assert key in context.cache
-
-        return context.cache[key]
-
-    def execute(self, context: Context) -> Any:
-        raise NotImplemented()
 
 
 class TfObject:
