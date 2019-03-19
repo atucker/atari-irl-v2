@@ -30,7 +30,7 @@ from .utils import Stacker
 from .headers import Batch, EnvInfo, SamplerState
 
 from .experiments import TfObject, Configuration, FilesystemCache
-from .buffers import ViewBuffer
+from .buffers import ViewBuffer, DummyBuffer
 
 
 class EnvSpec(NamedTuple):
@@ -225,11 +225,13 @@ class PPO2Info(PolicyInfo):
 
 class PPO2Trainer(PolicyTrainer, TfObject):
     info_class = PPO2Info
+    class_registration_name = 'PPO2Network'
     
     def __init__(
             self,
             env: VecEnv,
             network: str,
+            total_timesteps: int=10e6,
             **network_kwargs
     ) -> None:
         super().__init__(env)
@@ -240,7 +242,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         self.save_interval = 0
         
         training_config = PPO2TrainingConfiguration(
-            total_timesteps=10e6,
+            total_timesteps=total_timesteps,
             nenvs=env.num_envs
         )
         self.nbatch = training_config.nenvs * training_config.nsteps
@@ -385,6 +387,48 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             savepath = osp.join(checkdir, '%.5i' % itr)
             print('Saving to', savepath)
             self.model.save(savepath)
+            
+    def train(self, cache):
+        print(f"Training PPO2 policy with key {self.key}")
+        log_freq = 1
+        logger.configure()
+
+        sampler = Sampler(env=self.env, policy=self)
+        buffer = DummyBuffer[PPO2Info]()
+
+        total_episodes = 0
+        total_timesteps = 0
+        i = 0
+        eval_epinfobuf = []
+        while total_timesteps < self.config.training.total_timesteps:
+            batch = sampler.sample_batch(self.config.training.nsteps)
+            eval_epinfobuf.extend(batch.env_info.epinfobuf)
+            buffer.add_batch(batch)
+
+            self.train_step(
+                buffer=buffer,
+                itr=i,
+                log_freq=log_freq
+            )
+
+            if i % log_freq == 0:
+                logger.logkv('itr', i)
+                logger.logkv('cumulative episodes', total_episodes)
+                logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in eval_epinfobuf]))
+                logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in eval_epinfobuf]))
+                logger.logkv('buffer size', buffer.time_shape.size)
+                logger.dumpkvs()
+
+            if i % int(self.config.training.total_timesteps / 10) == 0:
+                print("Doing a cache roundtrip...")
+                with cache.context('training'):
+                    with cache.context(str(i)):
+                        self.store_in_cache(cache)
+                        self.restore_values_from_cache(cache)
+                        
+            i += 1
+            total_episodes += len(batch.env_info.epinfobuf)
+            total_timesteps += self.config.training.nsteps * self.config.training.nenvs
 
 
 TfObject.register_cachable_class('PPO2Network', PPO2Trainer)
