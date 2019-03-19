@@ -133,7 +133,7 @@ class IRL:
                 itr=i,
                 log_freq=log_freq
             )
-            if i % 1024 == 0 and self.train_discriminator:
+            if i % 1 == 0 and self.train_discriminator:
                 self.discriminator.train_step(
                     buffer=self.buffer,
                     policy=self.policy,
@@ -161,13 +161,21 @@ def main():
     with tf.Graph().as_default():
         with tf.Session() as sess:
             with cache.context('expert'):
+                """
                 policy = policies.QTrainer(
                     env=env,
                     network='conv_only',
                     total_timesteps=100000
                 )
+                """
+                policy = policies.PPO2Trainer(
+                    env=env,
+                    network='cnn',
+                    total_timesteps=250000
+                )
                 policy.cached_train(cache)
-
+            import time
+            time.sleep(10)
             with cache.context('trajectories'):
                 sampler = policies.Sampler(
                     env=env,
