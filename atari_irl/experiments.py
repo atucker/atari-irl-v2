@@ -206,4 +206,4 @@ class TfObject:
         pass
 
     def train(self, cache):
-        pass
+        raise NotImplemented()
