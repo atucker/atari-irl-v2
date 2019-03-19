@@ -17,6 +17,7 @@ class DummyBuffer(Buffer[T]):
         self.batch = None
 
     def add_batch(self, samples: Batch) -> None:
+        super().add_batch(samples)
         self.batch = samples
 
         self.time_shape = samples.time_shape
@@ -37,6 +38,7 @@ class FlatBuffer(Buffer[T]):
         self.policy_info_class = policy_info_class
         
     def add_batch(self, samples: Batch, debug=False) -> None:
+        super().add_batch(samples)
         assert samples.time_shape.num_envs is not None
         assert samples.time_shape.T is not None
         
