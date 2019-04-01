@@ -221,6 +221,10 @@ class PPO2Info(PolicyInfo):
         super().__init__(time_shape=time_shape, actions=actions)
         self.values = values
         self.neglogpacs = neglogpacs
+        
+    @property
+    def lprobs(self):
+        return self.neglogpacs * -1
 
 
 class PPO2Trainer(PolicyTrainer, TfObject):

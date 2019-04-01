@@ -226,11 +226,11 @@ class AtariAIRL:
                 score=np.mean(score)
             ))
             if it % int(self.max_itrs / 5) == 0 or it == self.max_itrs - 1:
-                print(f'\t{it}/{self.max_itrs}')
+                #print(f'\t{it}/{self.max_itrs}')
                 mean_loss = np.mean(stacker.loss)
-                print('\tLoss:%f' % mean_loss)
+                #print('\tLoss:%f' % mean_loss)
                 mean_acc = np.mean(stacker.accuracy)
-                print('\tAccuracy:%f' % mean_acc)
+                #print('\tAccuracy:%f' % mean_acc)
                 mean_score = np.mean(score)
 
         if logger:

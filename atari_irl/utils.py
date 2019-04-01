@@ -23,3 +23,7 @@ def one_hot(x, dim):
     for n, i in enumerate(x):
         ans[n, i] = 1
     return ans
+
+
+def inv_sf01(arr, s):
+    return arr.reshape(s[1], s[0], *s[2:]).swapaxes(0, 1)

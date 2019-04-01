@@ -140,7 +140,7 @@ class TfObject:
     class_registration_name = None
     version = 0
 
-    def __init__(self, config, scope_name=''):
+    def __init__(self, config, scope_name='', initialize=True):
         self.config = config
         with tf.variable_scope(scope_name) as scope:
             self.initialize_graph()

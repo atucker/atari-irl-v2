@@ -43,6 +43,7 @@ class ExpertBuffer(Buffer[PolicyInfo]):
         
         super().__init__(
             discriminator=None,
+            policy=None,
             time_shape=time_shape,
             env_info=EnvInfo(
                 obs=obs,

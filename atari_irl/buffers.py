@@ -168,12 +168,18 @@ class BatchedList:
                 return self._data[b][n, t]
         else:
             return np.array([self[k] for k in key])
+        
+    def __mul__(self, coefficient):
+        for d in self._data:
+            d *= coefficient
+        return self
      
     
 class ViewBuffer(Buffer[T]):
-    def __init__(self, discriminator, policy_info_class):
+    def __init__(self, *, discriminator, policy, policy_info_class):
         super().__init__(
             discriminator=discriminator,
+            policy=policy,
             time_shape=None,
             policy_info=None,
             env_info=EnvInfo(
@@ -236,14 +242,10 @@ class ViewBuffer(Buffer[T]):
         #self.env_info.time_shape = self.time_shape
         self.policy_info.time_shape = self.time_shape
         self.sampler_state = samples.sampler_state
-        
+    
     @property
     def next_acts(buffer):
         class NextActions:
             def __getitem__(self, key):
                 return buffer.acts.tplusone(key)
         return NextActions()
-    
-    @property
-    def lprobs(self):
-        return self.acts

@@ -42,6 +42,7 @@ class IRL:
             trajectories,
             policy_args,
             ablation=None,
+            score_discrim=True
     ):
         self.env = env
 
@@ -56,22 +57,26 @@ class IRL:
 
         self.discriminator = None if not build_discriminator else discriminators.AtariAIRL(
             env=self.env,
-            expert_buffer=experts.ExpertBuffer.from_trajectories(trajectories)
+            expert_buffer=experts.ExpertBuffer.from_trajectories(trajectories),
+            score_discrim=True
         )
 
         policy_class = {
             'Q': policies.QTrainer,
             'PPO2': policies.PPO2Trainer
         }[policy_args.pop('policy_type')]
-
-        self.buffer = buffers.ViewBuffer[policy_class.info_class](
-            self.discriminator,
-            policy_class.info_class
-        )
+        
         self.policy = policy_class(
             env=self.env,
             **policy_args
         )
+
+        self.buffer = buffers.ViewBuffer[policy_class.info_class](
+            discriminator=self.discriminator,
+            policy=self.policy,
+            policy_info_class=policy_class.info_class
+        )
+        
         self.sampler = policies.Sampler(
             env=self.env,
             policy=self.policy
@@ -195,7 +200,8 @@ def main():
                     policy_args={
                         'policy_type': 'PPO2',
                         'network': 'cnn'
-                    }
+                    },
+                    score_discrim=False
                 )
                 irl_runner.train()
 

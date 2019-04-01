@@ -5,9 +5,10 @@ from collections import namedtuple, OrderedDict
 import numpy as np
 import gym
 from baselines.common.vec_env import VecEnv
+from baselines.ppo2.runner import sf01
 import functools
 
-from .utils import one_hot
+from .utils import one_hot, inv_sf01
 
 
 class TimeShape(NamedTuple):
@@ -89,17 +90,20 @@ class Buffer(Generic[T]):
     def __init__(
         self, *,
         discriminator: Any,
+        policy: Any,
         time_shape: Optional[TimeShape],
         policy_info: Optional[T],
         env_info: Optional[EnvInfo],
         sampler_state: Optional[SamplerState]
     ) -> None:
         self.discriminator = discriminator
+        self.policy = policy
+        
         self.time_shape = time_shape
         self.policy_info = policy_info
         self.env_info = env_info
         self.sampler_state = sampler_state
-        self.latest_batch = None
+        self._latest_batch = None
 
     def reshuffle(self):            
         np.random.shuffle(self.shuffle)
@@ -128,8 +132,44 @@ class Buffer(Generic[T]):
     def next_dones(self):
         return self.env_info.next_dones
     
+    @property
+    def lprobs(buffer):
+        assert buffer.policy_info.lprobs is not None, "Log probabilities not provided by policy info"
+        return buffer.policy_info.lprobs
+    
     def add_batch(self, samples):
-        self.latest_batch = samples
+        self._latest_batch = samples
+    
+    @property
+    def latest_batch(self):
+        def replace_rewards(batch, rewards):
+            return Batch(
+                time_shape=batch.time_shape,
+                sampler_state=batch.sampler_state,
+                env_info=EnvInfo(
+                    time_shape=batch.env_info.time_shape,
+                    obs=batch.env_info.obs,
+                    next_obs=batch.env_info.next_obs,
+                    rewards=rewards,
+                    dones=batch.env_info.dones,
+                    next_dones=batch.env_info.next_dones,
+                    epinfobuf=[]
+                ),
+                policy_info=batch.policy_info
+            )
+        assert np.isclose(self._latest_batch.rewards, inv_sf01(sf01(self._latest_batch.rewards), self._latest_batch.rewards.shape)).all()
+        return replace_rewards(
+            self._latest_batch,
+            inv_sf01(
+                self.discriminator.eval(
+                    obs=sf01(self._latest_batch.obs),
+                    next_obs=sf01(self._latest_batch.next_obs),
+                    acts=one_hot(sf01(self._latest_batch.acts), self.discriminator.dU),
+                    log_probs=sf01(self._latest_batch.policy_info.lprobs)
+                ),
+                self._latest_batch.rewards.shape
+            )
+        )
     
     def iter_items(self, *keys, start_at=0) -> Iterator:
         TupClass = namedtuple('TupClass', keys)
@@ -208,12 +248,21 @@ class Buffer(Generic[T]):
 
             sampled_keys[key] = ans
             return ans
-
+        
+        for key in keys:
+            if key in ['lprobs', 'rewards']:
+                get_key(key)
+        
+        if self.policy is not None:
+            get_key('obs')
+            get_key('acts')
+            if 'lprobs' in keys:
+                sampled_keys['lprobs'] = self.policy.get_a_logprobs(
+                    obs=sampled_keys['obs'],
+                    acts=sampled_keys['acts']
+                )
+                
         if self.discriminator is not None:
-            for key in keys:
-                if key != 'rewards':
-                    get_key(key)
-
             if 'rewards' in keys:
                 sampled_keys['rewards'] = self.discriminator.eval(**sampled_keys)
 
@@ -255,6 +304,9 @@ class Batch(NamedTuple):
     def next_dones(self):
         return self.env_info.next_dones
 
+    @property
+    def lprobs(self):
+        return self.policy_info.lprobs
 
 class PolicyTrainer:
     info_class = None
