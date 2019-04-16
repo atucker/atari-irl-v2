@@ -210,7 +210,7 @@ def main():
                         'policy_type': 'PPO2',
                         'network': 'cnn'
                     },
-                    score_discrim=False
+                    score_discrim=True
                 )
                 irl_runner.train()
 
