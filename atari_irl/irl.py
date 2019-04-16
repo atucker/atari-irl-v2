@@ -163,8 +163,17 @@ def main():
         one_hot_code=False,
         num_envs=8
     )
+    ncpu=32
+    config = tf.ConfigProto(
+        allow_soft_placement=True,
+        intra_op_parallelism_threads=ncpu,
+        inter_op_parallelism_threads=ncpu,
+        device_count={'GPU': 1},
+    )
+    config.gpu_options.allow_growth=True
+    
     with tf.Graph().as_default():
-        with tf.Session() as sess:
+        with tf.Session(config=config) as sess:
             with cache.context('expert'):
                 """
                 policy = policies.QTrainer(
@@ -191,7 +200,7 @@ def main():
     # TODO(Aaron): Train an encoder
 
     with tf.Graph().as_default():
-        with tf.Session() as sess:
+        with tf.Session(config=config) as sess:
             with cache.context('irl'):
                 irl_runner = IRL(
                     env=env,
