@@ -23,7 +23,7 @@ Keras-Preprocessing==1.0.5
 lockfile==0.12.2
 Markdown==3.0.1
 mkl-fft==1.0.6
-mkl-random==1.0.2
+mkl-random==1.0.1
 mpi4py==3.0.0
 mujoco-py==1.50.1.68
 numpy==1.15.4
@@ -48,3 +48,4 @@ tqdm==4.28.1
 urllib3==1.24.1
 Werkzeug==0.14.1
 zmq==0.0.0
+tensorflow-gpu
