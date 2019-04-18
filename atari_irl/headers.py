@@ -89,20 +89,33 @@ T = TypeVar('T')
 class Buffer(Generic[T]):
     def __init__(
         self, *,
-        discriminator: Any,
-        policy: Any,
         time_shape: Optional[TimeShape],
+
+        overwrite_rewards: bool,
+        overwrite_logprobs: bool,
+        discriminator: Optional[Any] = None,
+        policy: Optional[Any] = None,
+
         policy_info: Optional[T],
         env_info: Optional[EnvInfo],
         sampler_state: Optional[SamplerState]
     ) -> None:
-        self.discriminator = discriminator
-        self.policy = policy
-        
         self.time_shape = time_shape
+
+        if overwrite_rewards:
+            assert discriminator is not None
+        self.overwrite_rewards = overwrite_rewards
+        self.discriminator = discriminator
+
+        if overwrite_logprobs:
+            assert policy is not None
+        self.overwrite_logprobs = overwrite_logprobs
+        self.policy = policy
+
         self.policy_info = policy_info
         self.env_info = env_info
         self.sampler_state = sampler_state
+
         self._latest_batch = None
 
     def reshuffle(self):            
@@ -142,67 +155,48 @@ class Buffer(Generic[T]):
     
     @property
     def latest_batch(self):
-        def replace_rewards(batch, rewards):
-            return Batch(
-                time_shape=batch.time_shape,
-                sampler_state=batch.sampler_state,
-                env_info=EnvInfo(
-                    time_shape=batch.env_info.time_shape,
-                    obs=batch.env_info.obs,
-                    next_obs=batch.env_info.next_obs,
-                    rewards=rewards,
-                    dones=batch.env_info.dones,
-                    next_dones=batch.env_info.next_dones,
+        def handle_env_info(env_info):
+            if self.overwrite_rewards:
+                assert np.isclose(
+                    self._latest_batch.rewards,
+                    inv_sf01(
+                        sf01(self._latest_batch.rewards),
+                        self._latest_batch.rewards.shape
+                    )
+                ).all()
+                # need to reconstruct the whole thing because it's a namedtuple
+                return EnvInfo(
+                    time_shape=env_info.time_shape,
+                    obs=env_info.obs,
+                    next_obs=env_info.next_obs,
+                    rewards=inv_sf01(
+                        self.discriminator.eval(
+                            obs=sf01(self._latest_batch.obs),
+                            next_obs=sf01(self._latest_batch.next_obs),
+                            acts=one_hot(
+                                sf01(self._latest_batch.acts),
+                                self.discriminator.dU
+                            ),
+                            log_probs=sf01(self._latest_batch.policy_info.lprobs)
+                        ),
+                        self._latest_batch.rewards.shape
+                    ),
+                    dones=env_info.dones,
+                    next_dones=env_info.next_dones,
                     epinfobuf=[]
-                ),
-                policy_info=batch.policy_info
-            )
-        assert np.isclose(self._latest_batch.rewards, inv_sf01(sf01(self._latest_batch.rewards), self._latest_batch.rewards.shape)).all()
-        return replace_rewards(
-            self._latest_batch,
-            inv_sf01(
-                self.discriminator.eval(
-                    obs=sf01(self._latest_batch.obs),
-                    next_obs=sf01(self._latest_batch.next_obs),
-                    acts=one_hot(sf01(self._latest_batch.acts), self.discriminator.dU),
-                    log_probs=sf01(self._latest_batch.policy_info.lprobs)
-                ),
-                self._latest_batch.rewards.shape
-            )
-        )
-    
-    def iter_items(self, *keys, start_at=0) -> Iterator:
-        TupClass = namedtuple('TupClass', keys)
-        
-        if self.time_shape.batches is None:
-            if self.time_shape.num_envs is None or self.time_shape.T is None:
-                for i in range(self.obs.shape[0]):
-                    if i >= start_at:
-                        yield TupClass(**dict(
-                            (key, getattr(self, key)[i]) for key in keys
-                        ))
+                )
             else:
-                for i in range(self.obs.shape[0]):
-                    for j in range(self.obs.shape[1]):
-                        if i * self.obs.shape[1] + j >= start_at:
-                            yield TupClass(**dict(
-                                (key, getattr(self, key)[i, j]) for key in keys
-                            ))
-        else:
-            for b in range(self.time_shape.batches):
-                if self.time_shape.num_envs is None or self.time_shape.T is None:
-                    for i in range(self.obs[b].shape[0]):
-                        if i >= start_at:
-                            yield TupClass(**dict(
-                                (key, getattr(self, key)[b][i]) for key in keys
-                            ))
-                else:
-                    for i in range(self.obs[b].shape[0]):
-                        for j in range(self.obs[b].shape[1]):
-                            if i * self.obs[b].shape[1] + j >= start_at:
-                                yield TupClass(**dict(
-                                    (key, getattr(self, key)[b][i, j]) for key in keys
-                                ))
+                return env_info
+
+        return Batch(
+            time_shape=self._latest_batch.time_shape,
+            sampler_state=self._latest_batch.sampler_state,
+            env_info=handle_env_info(
+                self._latest_batch.env_info,
+
+            ),
+            policy_info=self._latest_batch.policy_info
+        )
 
     def sample_batch(
         self,
@@ -250,10 +244,10 @@ class Buffer(Generic[T]):
             return ans
         
         for key in keys:
-            if key in ['lprobs', 'rewards']:
+            if key not in ['lprobs', 'rewards']:
                 get_key(key)
         
-        if self.policy is not None:
+        if self.overwrite_logprobs:
             get_key('obs')
             get_key('acts')
             if 'lprobs' in keys:
@@ -262,7 +256,7 @@ class Buffer(Generic[T]):
                     acts=sampled_keys['acts']
                 )
                 
-        if self.discriminator is not None:
+        if self.overwrite_rewards:
             if 'rewards' in keys:
                 sampled_keys['rewards'] = self.discriminator.eval(**sampled_keys)
 

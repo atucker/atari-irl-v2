@@ -398,7 +398,10 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         logger.configure()
 
         sampler = Sampler(env=self.env, policy=self)
-        buffer = DummyBuffer[PPO2Info]()
+        buffer = DummyBuffer[PPO2Info](
+            overwrite_rewards=False,
+            overwrite_logprobs=False
+        )
 
         total_episodes = 0
         total_timesteps = 0

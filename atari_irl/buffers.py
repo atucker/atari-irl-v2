@@ -1,14 +1,24 @@
-from typing import TypeVar, Tuple, Callable
+from typing import TypeVar, Tuple, Callable, Iterator, Optional, Any
 from .headers import Buffer, TimeShape, Batch, EnvInfo
 import numpy as np
+from collections import namedtuple
 
 T = TypeVar('T')
 
 
 class DummyBuffer(Buffer[T]):
-    def __init__(self):
+    def __init__(
+        self, *,
+        overwrite_rewards: bool,
+        overwrite_logprobs: bool,
+        discriminator: Optional[Any] = None,
+        policy: Optional[Any] = None,
+    ):
         super().__init__(
-            discriminator=None,
+            overwrite_rewards=overwrite_rewards,
+            overwrite_logprobs=overwrite_logprobs,
+            discriminator=discriminator,
+            policy=policy,
             time_shape=None,
             policy_info=None,
             env_info=None,
