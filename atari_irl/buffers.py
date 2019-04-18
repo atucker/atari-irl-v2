@@ -224,6 +224,8 @@ class BatchedList:
 class ViewBuffer(Buffer[T], IterableBufferMixin):
     def __init__(self, *, discriminator, policy, policy_info_class, maxlen=None):
         super().__init__(
+            overwrite_rewards=True,
+            overwrite_logprobs=True,
             discriminator=discriminator,
             policy=policy,
             time_shape=None,
