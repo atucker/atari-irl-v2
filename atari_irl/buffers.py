@@ -207,7 +207,7 @@ class BatchedList:
             b, n, t = self.get_idxs(key)
             return self._data[b][n, t]
         else:
-            return np.array([self[k] for k in key])
+            return [self[k] for k in key]
         
     def tplusone(self, key):
         assert self.time_shape is not None
