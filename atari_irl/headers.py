@@ -120,9 +120,6 @@ class Buffer(Generic[T]):
 
         self._latest_batch = None
 
-    def reshuffle(self):            
-        np.random.shuffle(self.shuffle)
-
     @property
     def obs(self):
         return self.env_info.obs
@@ -200,6 +197,32 @@ class Buffer(Generic[T]):
             policy_info=self._latest_batch.policy_info
         )
 
+    def reshuffle(self):
+        np.random.shuffle(self.shuffle)
+
+    def _reset_shuffle(self):
+        self.sample_idx = 0
+        self.shuffle = np.arange(self.time_shape.size)
+        self.reshuffle()
+
+    def _handle_shuffle_edge_cases(self, batch_size):
+        # Initialize shuffle logic if we haven't yet
+        # sometimes we don't know our time_shape until later, so wait to do this
+        # until now
+        if not hasattr(self, 'sample_idx'):
+            self._reset_shuffle()
+
+        # If we'd run past the end, then reshuffle
+        # It's fine to miss the last few because we're reshuffling, and so any index
+        # is equally likely to miss out
+        if self.sample_idx + batch_size >= self.time_shape.size:
+            self._reset_shuffle()
+
+        # If our shuffle list is too small for our current sample, extend it
+        if self.sample_idx + batch_size >= len(self.shuffle):
+            self.shuffle = np.arange(self.time_shape.size)
+            self.reshuffle()
+
     def sample_batch(
         self,
         *keys: Tuple[str],
@@ -208,24 +231,8 @@ class Buffer(Generic[T]):
         one_hot_acts_to_dim: Optional[int] = None,
         debug=False
     ) -> Tuple[np.ndarray]:
-        if not hasattr(self, 'sample_idx'):
-            self.sample_idx = 0
-            self.shuffle = np.arange(self.time_shape.size)
-            self.reshuffle()
-        
-        # If we'd run past the end, then reshuffle
-        # It's fine to miss the last few because we're reshuffling, and so any index
-        # is equally likely to miss out
-        if self.sample_idx + batch_size >= self.time_shape.size:
-            self.sample_idx = 0
-            self.shuffle = np.arange(self.time_shape.size)
-            self.reshuffle()
-            
-        if self.sample_idx + batch_size >= len(self.shuffle):
-            self.shuffle = np.arange(self.time_shape.size)
-            self.reshuffle()
-            
-        #assert self.shuffle.shape[0] >= batch_size, f"batch size {batch_size} > amount of data {self.time_shape.size}"
+        self._handle_shuffle_edge_cases(batch_size)
+
         batch_slice = slice(self.sample_idx, self.sample_idx+batch_size)
         sampled_keys = {}
 
@@ -236,11 +243,11 @@ class Buffer(Generic[T]):
             ans = getattr(self, key)[self.shuffle[batch_slice]]
             if 'obs' in key:
                 ans = modify_obs(ans)
-            if 'act' in key and one_hot_acts_to_dim is not None and len(ans.shape) == 1:
+            if 'act' in key and one_hot_acts_to_dim is not None and len(ans[0].shape) == 0:
                 ans = one_hot(ans, one_hot_acts_to_dim)
             if debug:
                 print(f"{key}: {ans.shape}")
-            assert ans.shape[0] > 0
+            assert len(ans) > 0
 
             sampled_keys[key] = ans
             return ans
