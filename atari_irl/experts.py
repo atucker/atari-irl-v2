@@ -42,6 +42,8 @@ class ExpertBuffer(Buffer[PolicyInfo]):
         time_shape = TimeShape(T=T, num_envs=None)
         
         super().__init__(
+            overwrite_rewards=False,
+            overwrite_logprobs=False,
             discriminator=None,
             policy=None,
             time_shape=time_shape,
