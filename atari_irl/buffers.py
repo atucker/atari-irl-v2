@@ -154,16 +154,21 @@ class FlatBuffer(Buffer[T]):
                 if field not in {'time_shape', 'epinfobuf'}:
                     print(f"{field}: {getattr(self.policy_info, field).shape}")
             print()
-        
+
         self.sampler_state = samples.sampler_state
 
     
 class BatchedList:
-    def __init__(self):
+    """
+    Holds a list of numpy arrays, and manages access to them through indices
+    """
+    def __init__(self, maxlen=None):
         self.time_shape = None
         self._data = []
+        self.maxlen=maxlen
         
     def append(self, batch):
+        assert self.maxlen is None or self._data <= self.maxlen
         if self.time_shape is None:
             assert len(self._data) == 0
             self.time_shape = TimeShape(
@@ -172,6 +177,8 @@ class BatchedList:
             )
             
         self._data.append(batch)
+        if self.maxlen is not None and len(self._data) > self.maxlen:
+            self._data.pop(0)
         
     def get_idxs(self, key):
         if isinstance(key, tuple):
@@ -232,11 +239,11 @@ class ViewBuffer(Buffer[T], IterableBufferMixin):
             policy_info=None,
             env_info=EnvInfo(
                 time_shape=None,
-                obs=BatchedList(),
-                rewards=BatchedList(),
-                dones=BatchedList(),
-                next_obs=BatchedList(),
-                next_dones=BatchedList(),
+                obs=BatchedList(maxlen=maxlen),
+                rewards=BatchedList(maxlen=maxlen),
+                dones=BatchedList(maxlen=maxlen),
+                next_obs=BatchedList(maxlen=maxlen),
+                next_dones=BatchedList(maxlen=maxlen),
                 epinfobuf=[]
             ),
             sampler_state=None
