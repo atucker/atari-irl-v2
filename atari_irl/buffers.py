@@ -34,7 +34,43 @@ class DummyBuffer(Buffer[T]):
         self.env_info = samples.env_info
         self.policy_info = samples.policy_info
         self.sampler_state = samples.sampler_state
-        
+
+
+class IterableBufferMixin:
+    def iter_items(self, *keys, start_at=0) -> Iterator:
+        assert self.time_shape, "Tried to use IterableBufferMixin without time_shape"
+        TupClass = namedtuple('TupClass', keys)
+
+        if self.time_shape.batches is None:
+            if self.time_shape.num_envs is None or self.time_shape.T is None:
+                for i in range(self.obs.shape[0]):
+                    if i >= start_at:
+                        yield TupClass(**dict(
+                            (key, getattr(self, key)[i]) for key in keys
+                        ))
+            else:
+                for i in range(self.obs.shape[0]):
+                    for j in range(self.obs.shape[1]):
+                        if i * self.obs.shape[1] + j >= start_at:
+                            yield TupClass(**dict(
+                                (key, getattr(self, key)[i, j]) for key in keys
+                            ))
+        else:
+            for b in range(self.time_shape.batches):
+                if self.time_shape.num_envs is None or self.time_shape.T is None:
+                    for i in range(self.obs[b].shape[0]):
+                        if i >= start_at:
+                            yield TupClass(**dict(
+                                (key, getattr(self, key)[b][i]) for key in keys
+                            ))
+                else:
+                    for i in range(self.obs[b].shape[0]):
+                        for j in range(self.obs[b].shape[1]):
+                            if i * self.obs[b].shape[1] + j >= start_at:
+                                yield TupClass(**dict(
+                                    (key, getattr(self, key)[b][i, j]) for key in keys
+                                ))
+
 
 class FlatBuffer(Buffer[T]):
     def __init__(self, discriminator, policy_info_class):
@@ -185,8 +221,8 @@ class BatchedList:
         return self
      
     
-class ViewBuffer(Buffer[T]):
-    def __init__(self, *, discriminator, policy, policy_info_class):
+class ViewBuffer(Buffer[T], IterableBufferMixin):
+    def __init__(self, *, discriminator, policy, policy_info_class, maxlen=None):
         super().__init__(
             discriminator=discriminator,
             policy=policy,
