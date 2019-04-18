@@ -91,6 +91,8 @@ class Buffer(Generic[T]):
         self, *,
         time_shape: Optional[TimeShape],
 
+        # maybe this should be replace_ instead?
+        # we don't do inplace modifications
         overwrite_rewards: bool,
         overwrite_logprobs: bool,
         discriminator: Optional[Any] = None,
