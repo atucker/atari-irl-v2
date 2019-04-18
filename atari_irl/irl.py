@@ -74,7 +74,8 @@ class IRL:
         self.buffer = buffers.ViewBuffer[policy_class.info_class](
             discriminator=self.discriminator,
             policy=self.policy,
-            policy_info_class=policy_class.info_class
+            policy_info_class=policy_class.info_class,
+            maxlen=1
         )
         
         self.sampler = policies.Sampler(

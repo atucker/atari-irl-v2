@@ -168,7 +168,7 @@ class BatchedList:
         self.maxlen=maxlen
         
     def append(self, batch):
-        assert self.maxlen is None or self._data <= self.maxlen
+        assert self.maxlen is None or len(self._data) <= self.maxlen
         if self.time_shape is None:
             assert len(self._data) == 0
             self.time_shape = TimeShape(
@@ -248,6 +248,7 @@ class ViewBuffer(Buffer[T], IterableBufferMixin):
             ),
             sampler_state=None
         )
+        self.maxlen=maxlen
         self.policy_info_class = policy_info_class
         
         policy_info_dict = {'time_shape': self.time_shape}
@@ -276,7 +277,7 @@ class ViewBuffer(Buffer[T], IterableBufferMixin):
             assert self.time_shape.num_envs == samples.time_shape.num_envs
             
             self.time_shape = TimeShape(
-                batches=self.time_shape.batches + 1,
+                batches=min(self.time_shape.batches + 1, self.maxlen),
                 T=samples.time_shape.T,
                 num_envs=samples.time_shape.num_envs
             )
