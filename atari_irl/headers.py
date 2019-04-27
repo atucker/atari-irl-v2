@@ -202,7 +202,7 @@ class Buffer(Generic[T]):
 
     def _reset_shuffle(self):
         self.sample_idx = 0
-        self.shuffle = np.arange(self.time_shape.size)
+        self.shuffle = np.arange(self.time_shape.size).astype(np.int64)
         self.reshuffle()
 
     def _handle_shuffle_edge_cases(self, batch_size):
