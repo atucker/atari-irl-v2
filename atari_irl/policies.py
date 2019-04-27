@@ -587,6 +587,8 @@ class QTrainer(PolicyTrainer, TfObject):
         )
     
     def get_a_logprobs(self, obs: np.ndarray, acts: np.ndarray) -> np.ndarray:
+        if isinstance(acts, list) or len(acts.shape) == 1:
+            acts = one_hot(acts, self.act_space.n)
         qs = self.debug['q_values'](obs)
         random_p = 1.0 / self.action_space.n
         logp_argmax = np.log((1.0 - self.last_explore_frac) * 1.0 + self.last_explore_frac * random_p)
@@ -597,8 +599,8 @@ class QTrainer(PolicyTrainer, TfObject):
         #a_logprobs[a_logprobs.astype(np.bool)] = logp_argmax
         
         a_logprobs = (acts.argmax(axis=1) == qs.argmax(axis=1))
-        a_logprobs[~a_logprobs.astype(np.bool)] == logp_other
-        a_logprobs[a_logprobs.astype(np.bool)] == logp_argmax
+        a_logprobs[~a_logprobs.astype(np.bool)] = logp_other
+        a_logprobs[a_logprobs.astype(np.bool)] = logp_argmax
         return a_logprobs
 
     def train_step(self, buffer: Buffer[QInfo], itr: int, log_freq=1000) -> None:
