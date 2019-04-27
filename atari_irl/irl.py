@@ -167,12 +167,14 @@ class IRL:
             ):
                 self.log_performance(i)
 
+            """
             if i % 4096 == 0:
                 print("Doing a cache roundtrip...")
                 with self.cache.context('training'):
                     with self.cache.context(str(i)):
                         self.policy.store_in_cache(self.cache)
                         self.policy.restore_values_from_cache(self.cache)
+            """
 
 
 def main(
