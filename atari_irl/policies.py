@@ -318,7 +318,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         probs = self.get_probabilities_for_obs(obs)
         return np.log((probs * acts).sum(axis=1))
 
-    def train_step(self, buffer: Buffer[PPO2Info], itr: int, log_freq=1000) -> None:
+    def train_step(self, buffer: Buffer[PPO2Info], itr: int, log_freq=1000, logger=None, cache=None) -> None:
         tstart = time.time()
         frac = 1.0 - (itr - 1.0) / self.nupdates
         if itr == 0:
@@ -382,7 +382,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         tnow = time.time()
         fps = int(self.nbatch / (tnow - tstart))
 
-        if itr % log_freq == 0 or itr == 1:
+        if itr % log_freq == 0 or itr == 1 or logger:
             # Calculates if value function is a good predictor of the returns (ev > 1)
             # or if it's just worse than predicting nothing (ev =< 0)
             ev = explained_variance(values, returns)
@@ -392,6 +392,8 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             logger.logkv("fps", fps)
             logger.logkv("explained_variance", float(ev))
             logger.logkv('time_elapsed', tnow - self.tfirststart)
+            logger.logkv("mean reward", np.mean(batch.rewards))
+            logger.logkv("mean return", np.mean(mb_returns))
             for (lossval, lossname) in zip(lossvals, self.model.loss_names):
                 logger.logkv(lossname, lossval)
 
@@ -404,7 +406,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             
     def train(self, cache):
         print(f"Training PPO2 policy with key {self.key}")
-        log_freq = 1
+        log_freq = self.log_interval
         logger.configure()
 
         sampler = Sampler(env=self.env, policy=self)
@@ -425,7 +427,9 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             self.train_step(
                 buffer=buffer,
                 itr=i,
-                log_freq=log_freq
+                log_freq=log_freq,
+                logger=logger,
+                cache=cache
             )
 
             if i % log_freq == 0:
@@ -603,10 +607,10 @@ class QTrainer(PolicyTrainer, TfObject):
         a_logprobs[a_logprobs.astype(np.bool)] = logp_argmax
         return a_logprobs
 
-    def train_step(self, buffer: Buffer[QInfo], itr: int, log_freq=1000) -> None:
+    def train_step(self, buffer: Buffer[QInfo], itr: int, log_freq=1000, logger=None) -> None:
         assert itr == self.t
         t = itr
-        
+
         if t > self.config.training.learning_starts and t % self.config.training.train_freq == 0:
             # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
             obses_t, actions, rewards, obses_tp1, dones = buffer.sample_batch(
@@ -622,7 +626,8 @@ class QTrainer(PolicyTrainer, TfObject):
             
         if itr % log_freq == 0:
             logger.logkv('"% time spent exploring"', int(100 * buffer.policy_info.explore_frac[-1]))
-            
+            if t > self.config.training.learning_starts and t % self.config.training.train_freq == 0:
+                logger.logkv("mean reward", np.mean(rewards))
         self.t += 1
 
     def train(self, cache):

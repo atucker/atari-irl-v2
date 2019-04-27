@@ -142,11 +142,12 @@ class AtariAIRL:
 
     def _process_discrim_output(self, score):
         score = np.clip(score, 1e-7, 1 - 1e-7)
+
         score = np.log(score) - np.log(1 - score)
         score = score[:, 0]
         return np.clip((score - self.score_mean) / self.score_std, -3, 3), score
 
-    def train_step(self, buffer: Buffer, policy: PolicyTrainer, batch_size=256, lr=1e-3, itr=0, **kwargs):
+    def train_step(self, buffer: Buffer, policy: PolicyTrainer, batch_size=256, lr=1e-3, verbose=False, itr=0, **kwargs):
         if batch_size > buffer.time_shape.size:
             return
         
@@ -225,13 +226,16 @@ class AtariAIRL:
                 accuracy=acc,
                 score=np.mean(score)
             ))
-            if it % int(self.max_itrs / 5) == 0 or it == self.max_itrs - 1:
-                #print(f'\t{it}/{self.max_itrs}')
-                mean_loss = np.mean(stacker.loss)
-                #print('\tLoss:%f' % mean_loss)
-                mean_acc = np.mean(stacker.accuracy)
-                #print('\tAccuracy:%f' % mean_acc)
-                mean_score = np.mean(score)
+            mean_loss = np.mean(stacker.loss)
+            mean_acc = np.mean(stacker.accuracy)
+            mean_score = np.mean(score)
+
+
+            if verbose and (it % int(self.max_itrs / 10) == 0 or it == self.max_itrs - 1):
+                print(f'\t{it}/{self.max_itrs}')
+                print('\tLoss:%f' % mean_loss)
+                print('\tAccuracy:%f' % mean_acc)
+
 
         if logger:
             logger.logkv('GCLDiscrimLoss', mean_loss)

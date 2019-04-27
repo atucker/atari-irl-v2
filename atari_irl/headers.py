@@ -328,7 +328,7 @@ class PolicyTrainer:
     def get_actions(self, obs_batch: Observations) -> PolicyInfo:
         raise NotImplemented
 
-    def train_step(self, buffer: Buffer, itr: int) -> None:
+    def train_step(self, buffer: Buffer, itr: int, log_freq: int, logger: Any) -> None:
         raise NotImplemented
 
 

@@ -137,15 +137,21 @@ class IRL:
             self.policy.train_step(
                 buffer=self.buffer,
                 itr=i,
-                log_freq=log_freq
+                log_freq=log_freq,
+                logger=logger
             )
             if i % 1 == 0 and self.train_discriminator:
                 self.discriminator.train_step(
                     buffer=self.buffer,
                     policy=self.policy,
-                    itr=i
+                    itr=i,
+                    logger=logger
                 )
-            if i % log_freq == 0:
+
+            if (
+                self.train_discriminator and i % discriminator_train_freq == 0 or
+                not self.train_discriminator and i % log_freq == 0
+            ):
                 self.log_performance(i)
 
             if i % 4096 == 0:
