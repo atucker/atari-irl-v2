@@ -176,6 +176,12 @@ class Sampler:
         return cache[key]
 
 
+class EnvConfiguration(Configuration):
+    default_values = dict(
+        name='ERROR: This has to be defined'
+    )
+
+
 class NetworkKwargsConfiguration(Configuration):
     default_values = dict(
         network='conv_only',
@@ -204,7 +210,8 @@ class PPO2TrainingConfiguration(Configuration):
 class PPO2Config(Configuration):
     default_values = dict(
         training=PPO2TrainingConfiguration(),
-        network=NetworkKwargsConfiguration()
+        network=NetworkKwargsConfiguration(),
+        env=EnvConfiguration()
     )
 
 
@@ -261,6 +268,9 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             network=NetworkKwargsConfiguration(
                 network=network,
                 network_kwargs=network_kwargs
+            ),
+            env=EnvConfiguration(
+                name=env.unwrapped.specs[0].id
             )
         ))
 
@@ -473,7 +483,8 @@ class QTrainingConfiguration(Configuration):
 class QConfig(Configuration):
     default_values = dict(
         training=QTrainingConfiguration(),
-        network=NetworkKwargsConfiguration()
+        network=NetworkKwargsConfiguration(),
+        env=EnvConfiguration()
     )
 
 
@@ -498,11 +509,15 @@ class QTrainer(PolicyTrainer, TfObject):
         self.env = env
         TfObject.__init__(self, QConfig(
             training=QTrainingConfiguration(
-                total_timesteps=total_timesteps
+                total_timesteps=total_timesteps,
+                learning_starts=learning_starts
             ),
             network=NetworkKwargsConfiguration(
                 network=network,
                 network_kwargs=network_kwargs
+            ),
+            env=EnvConfiguration(
+                name=env.unwrapped.specs[0].id
             )
         ))
 
