@@ -175,11 +175,21 @@ class IRL:
                         self.policy.restore_values_from_cache(self.cache)
 
 
-def main():
+def main(
+        *,
+        env_name='PLECatcher-v0',
+        total_timesteps=10e6,
+        num_trajectories=8,
+        use_trajectories_file='',
+        score_discrim=True,
+        update_ratio=32,
+        buffer_size=None,
+        seed=0
+):
     cache = experiments.FilesystemCache('test_cache')
     env = environments.make_vec_env(
-        env_name='PLECatcher-v0',
-        seed=0,
+        env_name=env_name,
+        seed=seed,
         one_hot_code=False,
         num_envs=8
     )
@@ -188,7 +198,7 @@ def main():
         allow_soft_placement=True,
         intra_op_parallelism_threads=ncpu,
         inter_op_parallelism_threads=ncpu,
-        device_count={'GPU': 1},
+        device_count={'GPU': 2},
     )
     config.gpu_options.allow_growth=True
     
@@ -221,16 +231,20 @@ def main():
 
     with tf.Graph().as_default():
         with tf.Session(config=config) as sess:
+            tf.random.set_random_seed(seed)
             with cache.context('irl'):
                 irl_runner = IRL(
                     env=env,
                     cache=cache,
                     trajectories=trajectories,
                     policy_args={
-                        'policy_type': 'PPO2',
-                        'network': 'cnn'
+                        'policy_type': 'Q', #'PPO2',
+                        'network': 'conv_only', #'cnn',
+                        'total_timesteps': 1000000
                     },
-                    score_discrim=True
+                    score_discrim=score_discrim,
+                    fixed_buffer_ratio=update_ratio,
+                    buffer_size=buffer_size
                 )
                 irl_runner.train()
 
