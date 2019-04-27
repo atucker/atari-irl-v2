@@ -75,7 +75,7 @@ class IRL:
             discriminator=self.discriminator,
             policy=self.policy,
             policy_info_class=policy_class.info_class,
-            maxlen=1
+            maxlen=int(buffer_size / env.num_envs) if buffer_size else self.fixed_buffer_ratio
         )
         
         self.sampler = policies.Sampler(

@@ -248,7 +248,7 @@ class ViewBuffer(Buffer[T], IterableBufferMixin):
             ),
             sampler_state=None
         )
-        self.maxlen=maxlen
+        self.maxlen = maxlen
         self.policy_info_class = policy_info_class
         
         policy_info_dict = {'time_shape': self.time_shape}
