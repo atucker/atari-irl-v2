@@ -201,31 +201,39 @@ def main(
         device_count={'GPU': 2},
     )
     config.gpu_options.allow_growth=True
-    
-    with tf.Graph().as_default():
-        with tf.Session(config=config) as sess:
-            with cache.context('expert'):
-                """
-                policy = policies.QTrainer(
-                    env=env,
-                    network='conv_only',
-                    total_timesteps=100000
-                )
-                """
-                policy = policies.PPO2Trainer(
-                    env=env,
-                    network='cnn',
-                    total_timesteps=250000
-                )
-                policy.cached_train(cache)
-            import time
-            time.sleep(10)
-            with cache.context('trajectories'):
-                sampler = policies.Sampler(
-                    env=env,
-                    policy=policy
-                )
-                trajectories = sampler.cached_sample_trajectories(cache, one_hot_code=True)
+
+    if use_trajectories_file:
+        import joblib
+        trajectories = joblib.load(use_trajectories_file)
+    else:
+        with tf.Graph().as_default():
+            with tf.Session(config=config) as sess:
+                tf.random.set_random_seed(seed)
+                with cache.context('expert'):
+                    """
+                    policy = policies.QTrainer(
+                        env=env,
+                        network='conv_only',
+                        total_timesteps=100000
+                    )
+                    """
+                    policy = policies.PPO2Trainer(
+                        env=env,
+                        network='cnn',
+                        total_timesteps=int(total_timesteps)
+                    )
+                    policy.cached_train(cache)
+
+                with cache.context('trajectories'):
+                    sampler = policies.Sampler(
+                        env=env,
+                        policy=policy
+                    )
+                    trajectories = sampler.cached_sample_trajectories(
+                        cache,
+                        num_trajectories=num_trajectories,
+                        one_hot_code=True
+                    )
 
     # TODO(Aaron): Train an encoder
 
