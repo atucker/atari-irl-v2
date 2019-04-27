@@ -471,7 +471,7 @@ class QInfo(PolicyInfo):
 class QTrainingConfiguration(Configuration):
     default_values = dict(
         lr=5e-4,
-        gamma=1.0,
+        gamma=0.99,
         exploration_fraction=0.1,
         exploration_final_eps=0.02,
         total_timesteps=100000,
@@ -479,7 +479,7 @@ class QTrainingConfiguration(Configuration):
         learning_starts=1000,
         train_freq=1,
         batch_size=32,
-        target_network_update_freq=500,
+        target_network_update_freq=10000,
         prioritized_replay=False
     )
 
@@ -501,6 +501,7 @@ class QTrainer(PolicyTrainer, TfObject):
             env: VecEnv,
             network: str,
             total_timesteps=100000,
+            learning_starts=1000,
             **network_kwargs
     ) -> None:
         PolicyTrainer.__init__(self, env)

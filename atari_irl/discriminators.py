@@ -54,7 +54,7 @@ class AtariAIRL:
          reward_arch_args={},
          value_fn_arch=cnn_net,
          score_discrim=False,
-         discount=1.0,
+         discount=0.99,
          state_only=False,
          max_itrs=100,
          drop_framestack=False,

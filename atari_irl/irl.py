@@ -42,7 +42,9 @@ class IRL:
             trajectories,
             policy_args,
             ablation=None,
-            score_discrim=True
+            score_discrim=True,
+            fixed_buffer_ratio=32,
+            buffer_size=None
     ):
         self.env = env
 
@@ -58,14 +60,24 @@ class IRL:
         self.discriminator = None if not build_discriminator else discriminators.AtariAIRL(
             env=self.env,
             expert_buffer=experts.ExpertBuffer.from_trajectories(trajectories),
-            score_discrim=True
+            score_discrim=score_discrim,
+            max_itrs=100
         )
 
+        self.T = 5000000000
+
+        policy_type = policy_args.pop('policy_type')
         policy_class = {
             'Q': policies.QTrainer,
             'PPO2': policies.PPO2Trainer
-        }[policy_args.pop('policy_type')]
-        
+        }[policy_type]
+
+        self.batch_t = 128 if policy_type == 'PPO2' else 1
+        self.fixed_buffer_ratio = fixed_buffer_ratio
+        if policy_type == 'Q':
+            self.fixed_buffer_ratio *= 128
+            policy_args['learning_starts'] = self.fixed_buffer_ratio
+
         self.policy = policy_class(
             env=self.env,
             **policy_args
@@ -90,7 +102,7 @@ class IRL:
 
         self.eval_epinfobuf = deque(maxlen=100)
         self.total_episodes = 0
-        self.batch_t = 128
+
         
     def obtain_samples(self):
         batch = self.sampler.sample_batch(self.batch_t)
@@ -128,9 +140,10 @@ class IRL:
 
     def train(self):
         log_freq = 1
+        discriminator_train_freq = self.fixed_buffer_ratio
         logger.configure()
         
-        for i in range(int(50000)):
+        for i in range(int(self.T)):
             samples = self.obtain_samples()
             self.buffer.add_batch(samples)
             if self.mask_rewards: assert np.isclose(samples.rewards.sum(), 0.0)
@@ -140,7 +153,7 @@ class IRL:
                 log_freq=log_freq,
                 logger=logger
             )
-            if i % 1 == 0 and self.train_discriminator:
+            if i % discriminator_train_freq == 0 and self.train_discriminator:
                 self.discriminator.train_step(
                     buffer=self.buffer,
                     policy=self.policy,
