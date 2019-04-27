@@ -249,24 +249,31 @@ class Buffer(Generic[T]):
                 print(f"{key}: {ans.shape}")
             assert len(ans) > 0
 
+            if 'act' in key:
+                ans = np.array(ans)
             sampled_keys[key] = ans
             return ans
+
+        def compute_logprobs():
+            get_key('obs')
+            get_key('acts')
+            sampled_keys['lprobs'] = self.policy.get_a_logprobs(
+                obs=sampled_keys['obs'],
+                acts=sampled_keys['acts']
+            )
+
         
         for key in keys:
             if key not in ['lprobs', 'rewards']:
                 get_key(key)
         
         if self.overwrite_logprobs:
-            get_key('obs')
-            get_key('acts')
             if 'lprobs' in keys:
-                sampled_keys['lprobs'] = self.policy.get_a_logprobs(
-                    obs=sampled_keys['obs'],
-                    acts=sampled_keys['acts']
-                )
-                
+                compute_logprobs()
+
         if self.overwrite_rewards:
             if 'rewards' in keys:
+                compute_logprobs()
                 sampled_keys['rewards'] = self.discriminator.eval(**sampled_keys)
 
         ans = tuple(get_key(key) for key in keys)

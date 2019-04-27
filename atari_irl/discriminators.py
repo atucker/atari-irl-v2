@@ -248,9 +248,11 @@ class AtariAIRL:
         obs: np.ndarray,
         acts: np.ndarray,
         next_obs: Optional[np.ndarray]=None,
-        log_probs: Optional[np.ndarray]=None,
+        lprobs: Optional[np.ndarray]=None,
         **kwargs
     ) -> np.ndarray:
+        if isinstance(acts, list):
+            acts = np.array(acts)
         if len(acts.shape) == 1:
             acts = one_hot(acts, self.dU)
         if self.score_discrim:
@@ -258,7 +260,7 @@ class AtariAIRL:
                 self.modify_obs(obs),
                 self.modify_obs(next_obs),
                 acts,
-                log_probs
+                lprobs
             )
             path_probs = np.expand_dims(path_probs, axis=1)
             scores = tf.get_default_session().run(
