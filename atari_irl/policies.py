@@ -397,12 +397,10 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             for (lossval, lossname) in zip(lossvals, self.model.loss_names):
                 logger.logkv(lossname, lossval)
 
-        if self.save_interval and (itr % self.save_interval == 0 or itr == 1) and logger.get_dir():
-            checkdir = osp.join(logger.get_dir(), 'checkpoints')
-            os.makedirs(checkdir, exist_ok=True)
-            savepath = osp.join(checkdir, '%.5i' % itr)
-            print('Saving to', savepath)
-            self.model.save(savepath)
+        if cache and self.save_interval and (itr % self.save_interval == 0 or itr == 1):
+            with cache.context('training'):
+                with cache.context(str(itr)):
+                    self.store_in_cache(cache)
             
     def train(self, cache):
         print(f"Training PPO2 policy with key {self.key}")
