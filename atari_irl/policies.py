@@ -202,7 +202,7 @@ class PPO2TrainingConfiguration(Configuration):
         cliprange=0.1,
         nsteps=128,
         nminibatches=4,
-        noptepochs=4,
+        noptepochs=3,
         nenvs=8
     )
 
@@ -288,7 +288,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             nbatch_train=self.nbatch_train,
             nsteps=self.config.training.nsteps,
             ent_coef=0.01,
-            vf_coef=0.5,
+            vf_coef=1,
             max_grad_norm=0.5
         )
 
