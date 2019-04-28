@@ -203,7 +203,10 @@ class PPO2TrainingConfiguration(Configuration):
         nsteps=128,
         nminibatches=4,
         noptepochs=3,
-        nenvs=8
+        nenvs=8,
+        ent_coef=0.01,
+        vf_coef=1,
+        max_grad_norm=0.5
     )
 
 
@@ -284,9 +287,9 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             nbatch_act=self.env.num_envs,
             nbatch_train=self.nbatch_train,
             nsteps=self.config.training.nsteps,
-            ent_coef=0.01,
-            vf_coef=1,
-            max_grad_norm=0.5
+            ent_coef=self.config.training.ent_coef,
+            vf_coef=self.config.training.vf_coef,
+            max_grad_norm=self.config.training.max_grad_norm
         )
 
     def get_actions(self, obs_batch: Observations) -> PPO2Info:
@@ -315,11 +318,16 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         probs = self.get_probabilities_for_obs(obs)
         return np.log((probs * acts).sum(axis=1))
 
-    def train_step(self, buffer: Buffer[PPO2Info], itr: int, log_freq=1000, logger=None, cache=None) -> None:
+    def train_step(
+            self, *,
+            buffer: Buffer[PPO2Info], itr: int,
+            logger=None, log_freq=1000,
+            cache=None, save_freq=None
+    ) -> None:
         tstart = time.time()
         frac = 1.0 - (itr - 1.0) / self.nupdates
         if itr == 0:
-            self.tfirststart=tstart
+            self.tfirststart = tstart
 
         # Calculate the learning rate
         lrnow = self.config.training.lr * frac
@@ -475,7 +483,9 @@ class QTrainingConfiguration(Configuration):
         train_freq=1,
         batch_size=32,
         target_network_update_freq=10000,
-        prioritized_replay=False
+        prioritized_replay=False,
+        grad_norm_clipping=10,
+        exploration_initial_p=1.0
     )
 
 
@@ -527,7 +537,7 @@ class QTrainer(PolicyTrainer, TfObject):
         # Create the schedule for exploration starting from 1.
         self.exploration = deepq.LinearSchedule(
             schedule_timesteps=int(self.config.training.exploration_fraction * self.config.training.total_timesteps),
-            initial_p=1.0,
+            initial_p=self.config.training.exploration_initial_p,
             final_p=self.config.training.exploration_final_eps
         )
 
@@ -555,7 +565,7 @@ class QTrainer(PolicyTrainer, TfObject):
             num_actions=env.action_space.n,
             optimizer=tf.train.AdamOptimizer(learning_rate=self.config.training.lr),
             gamma=self.config.training.gamma,
-            grad_norm_clipping=10,
+            grad_norm_clipping=self.config.training.grad_norm_clipping,
             param_noise=self.config.training.param_noise
         )
         assert 'q_values' in self.debug
