@@ -206,7 +206,8 @@ class PPO2TrainingConfiguration(Configuration):
         nenvs=8,
         ent_coef=0.01,
         vf_coef=1,
-        max_grad_norm=0.5
+        max_grad_norm=0.5,
+        seed=0
     )
 
 
@@ -246,6 +247,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             env: VecEnv,
             network: str,
             total_timesteps: int=10e6,
+            seed=0,
             **network_kwargs
     ) -> None:
         super().__init__(env)
@@ -254,7 +256,8 @@ class PPO2Trainer(PolicyTrainer, TfObject):
 
         training_config = PPO2TrainingConfiguration(
             total_timesteps=total_timesteps,
-            nenvs=env.num_envs
+            nenvs=env.num_envs,
+            seed=seed
         )
         self.nbatch = training_config.nenvs * training_config.nsteps
         self.nbatch_train = self.nbatch // training_config.nminibatches
@@ -276,6 +279,8 @@ class PPO2Trainer(PolicyTrainer, TfObject):
 
     def initialize_graph(self):
         print('initializing!')
+        baselines.common.set_global_seeds(self.config.training.seed)
+        np.random.seed(self.config.training.seed)
         self.model = baselines.ppo2.model.Model(
             policy=baselines.common.policies.build_policy(
                 self.env,
@@ -485,7 +490,8 @@ class QTrainingConfiguration(Configuration):
         target_network_update_freq=10000,
         prioritized_replay=False,
         grad_norm_clipping=10,
-        exploration_initial_p=1.0
+        exploration_initial_p=1.0,
+        seed=0
     )
 
 
@@ -507,6 +513,7 @@ class QTrainer(PolicyTrainer, TfObject):
             network: str,
             total_timesteps=100000,
             learning_starts=1000,
+            seed=0,
             **network_kwargs
     ) -> None:
         PolicyTrainer.__init__(self, env)
@@ -520,7 +527,8 @@ class QTrainer(PolicyTrainer, TfObject):
         TfObject.__init__(self, QConfig(
             training=QTrainingConfiguration(
                 total_timesteps=total_timesteps,
-                learning_starts=learning_starts
+                learning_starts=learning_starts,
+                seed=seed
             ),
             network=NetworkKwargsConfiguration(
                 network=network,
@@ -549,6 +557,8 @@ class QTrainer(PolicyTrainer, TfObject):
         self.env = env
 
     def initialize_graph(self):
+        baselines.common.set_global_seeds(self.config.training.seed)
+        np.random.seed(self.config.training.seed)
         env = self.env
         q_func = deepq.build_q_func(
             self.config.network.network,

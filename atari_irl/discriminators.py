@@ -58,9 +58,11 @@ class AtariAIRL:
          state_only=False,
          max_itrs=100,
          drop_framestack=False,
-         only_show_scores=False
+         only_show_scores=False,
+         seed=0
     ):
         name='reward_model'
+        self.seed = seed
 
         self.action_space = env.action_space
         self.dO = functools.reduce(
@@ -86,6 +88,8 @@ class AtariAIRL:
 
         self.expert_buffer = expert_buffer
 
+        tf.random.set_random_seed(self.seed)
+        np.random.seed(self.seed)
         with tf.variable_scope(name) as _vs:
             # Should be batch_size x T x dO/dU
             obs_dtype = tf.int8 if reward_arch == cnn_net else tf.float32
