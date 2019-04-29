@@ -38,6 +38,12 @@ class Cache:
 
         return CacheContext()
 
+    def context_item_keys(self) -> List[str]:
+        """
+        Get the item keys that are under our context
+        """
+        raise NotImplementedError
+
 
 class DictCache(Cache):
     def __init__(self):
@@ -53,6 +59,9 @@ class DictCache(Cache):
     def __setitem__(self, key: str, value: Any) -> None:
         self.data[self.full_key(key)] = value
 
+    def context_items(self) -> List[str]:
+        raise NotImplementedError
+
 
 class FilesystemCache(Cache):
     def __init__(self, base_dir: str):
@@ -65,10 +74,10 @@ class FilesystemCache(Cache):
         m = hashlib.md5()
         m.update(key.encode('utf-8'))
         hash = m.hexdigest()[:128]
-        return os.path.join(self.base_dir, '/'.join(self.context_stack + [hash]) + '.pkl')
+        return os.path.join(self.base_dir, '/'.join(self.context_stack + [hash]))
 
     def __getitem__(self, key: str) -> Any:
-        return joblib.load(self.full_key(key))
+        return joblib.load(self.full_key(key) + '.pkl')
 
     def __contains__(self, key: str) -> bool:
         return os.path.exists(self.full_key(key))
@@ -80,7 +89,10 @@ class FilesystemCache(Cache):
             if not os.path.exists(curdir):
                 os.mkdir(curdir)
 
-        joblib.dump(value, self.full_key(key))
+        joblib.dump(value, self.full_key(key) + '.pkl')
+
+    def context_item_keys(self) -> List[str]:
+        return os.listdir(os.path.join(self.base_dir, '/'.join(self.context_stack)))
 
 
 class Configuration:
@@ -168,7 +180,7 @@ class TfObject:
 
     def store_in_cache(self, cache: Cache) -> None:
         cache[self.key] = (self.class_registration_name, self.config, self.values)
-        config_fname = cache.full_key(self.key)[:-4] + '_description.txt'
+        config_fname = cache.full_key(self.key) + '_description.txt'
         with open(config_fname, 'w') as f:
             for part in re.split('[,;-]', self.key):
                 f.write(part + '\n')
@@ -207,3 +219,26 @@ class TfObject:
 
     def train(self, cache):
         raise NotImplemented()
+
+    def store_training_checkpoint(self, cache: Cache, itr: int, extra_data={}):
+        with cache.context('training'):
+            with cache.context(cache.full_key(self.key)):
+                with cache.context(str(itr)):
+                    self.store_in_cache(cache)
+                    for key, value in extra_data.items():
+                        cache[key] = value
+
+    def restore_training_checkpoint(self, cache: Cache):
+        with cache.context('training'):
+            with cache.context(cache.full_key(self.key)):
+                available_itrs = cache.context_item_keys()
+                if not available_itrs:
+                    assert False, "restore initialized from empty context, cannot resume training"
+                itr = int(max(available_itrs))
+                with cache.context(str(itr)):
+                    self.restore_values_from_cache(cache)
+                    extra_data = {}
+                    for key in cache.context_item_keys():
+                        extra_data[key] = cache[key]
+        return itr, extra_data
+
