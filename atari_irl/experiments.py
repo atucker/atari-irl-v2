@@ -1,5 +1,5 @@
 import inspect
-from typing import Dict, Any, Type, List, NamedTuple, Optional, Set, Tuple
+from typing import Dict, Any, Type, List, NamedTuple, Optional, Set, Tuple, Union
 import argparse
 import tensorflow as tf
 import numpy as np
@@ -63,6 +63,10 @@ class DictCache(Cache):
         raise NotImplementedError
 
 
+class FilesystemCacheHash(NamedTuple):
+    value: str
+
+
 class FilesystemCache(Cache):
     def __init__(self, base_dir: str):
         super().__init__()
@@ -70,19 +74,22 @@ class FilesystemCache(Cache):
         if not os.path.exists(self.base_dir):
             os.mkdir(self.base_dir)
 
-    def full_key(self, key):
-        m = hashlib.md5()
-        m.update(key.encode('utf-8'))
-        hash = m.hexdigest()[:128]
+    def full_key(self, key: Union[str, FilesystemCacheHash], is_hash=False):
+        if isinstance(key, FilesystemCacheHash):
+            hash = key.value
+        else:
+            m = hashlib.md5()
+            m.update(key.encode('utf-8'))
+            hash = m.hexdigest()[:128]
         return os.path.join(self.base_dir, '/'.join(self.context_stack + [hash]))
 
-    def __getitem__(self, key: str) -> Any:
+    def __getitem__(self, key: Union[str, FilesystemCacheHash]) -> Any:
         return joblib.load(self.full_key(key) + '.pkl')
 
-    def __contains__(self, key: str) -> bool:
+    def __contains__(self, key: Union[str, FilesystemCacheHash]) -> bool:
         return os.path.exists(self.full_key(key))
 
-    def __setitem__(self, key: str, value: Any) -> None:
+    def __setitem__(self, key: Union[str, FilesystemCacheHash], value: Any) -> None:
         curdir = self.base_dir
         for dir in self.context_stack:
             curdir = os.path.join(curdir, dir)
