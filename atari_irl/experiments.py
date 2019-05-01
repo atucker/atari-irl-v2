@@ -8,10 +8,22 @@ import os.path
 import hashlib
 import re
 
+class CacheHash(NamedTuple):
+    value: str
 
 class Cache:
     def __init__(self):
         self.context_stack = []
+
+    @staticmethod
+    def hash_key(key: Union[str, CacheHash]) -> str:
+        if isinstance(key, CacheHash):
+            hash = key.value
+        else:
+            m = hashlib.md5()
+            m.update(key.encode('utf-8'))
+            hash = m.hexdigest()[:128]
+        return hash
 
     def full_key(self, key):
         return key + '_' + '.'.join(self.context_stack)
@@ -63,10 +75,6 @@ class DictCache(Cache):
         raise NotImplementedError
 
 
-class FilesystemCacheHash(NamedTuple):
-    value: str
-
-
 class FilesystemCache(Cache):
     def __init__(self, base_dir: str):
         super().__init__()
@@ -74,29 +82,27 @@ class FilesystemCache(Cache):
         if not os.path.exists(self.base_dir):
             os.mkdir(self.base_dir)
 
-    def full_key(self, key: Union[str, FilesystemCacheHash], is_hash=False):
-        if isinstance(key, FilesystemCacheHash):
-            hash = key.value
-        else:
-            m = hashlib.md5()
-            m.update(key.encode('utf-8'))
-            hash = m.hexdigest()[:128]
+    def full_key(self, key: Union[str, CacheHash]):
+        hash = self.hash_key(key)
         return os.path.join(self.base_dir, '/'.join(self.context_stack + [hash]))
 
-    def __getitem__(self, key: Union[str, FilesystemCacheHash]) -> Any:
-        return joblib.load(self.full_key(key) + '.pkl')
+    def filename(self, key: Union[str, CacheHash]):
+        return f"{self.full_key(key)}.pkl"
 
-    def __contains__(self, key: Union[str, FilesystemCacheHash]) -> bool:
-        return os.path.exists(self.full_key(key))
+    def __getitem__(self, key: Union[str, CacheHash]) -> Any:
+        return joblib.load(self.filename(key))
 
-    def __setitem__(self, key: Union[str, FilesystemCacheHash], value: Any) -> None:
+    def __contains__(self, key: Union[str, CacheHash]) -> bool:
+        return os.path.exists(self.filename(key))
+
+    def __setitem__(self, key: Union[str, CacheHash], value: Any) -> None:
         curdir = self.base_dir
         for dir in self.context_stack:
             curdir = os.path.join(curdir, dir)
             if not os.path.exists(curdir):
                 os.mkdir(curdir)
 
-        joblib.dump(value, self.full_key(key) + '.pkl')
+        joblib.dump(value, self.filename(key))
 
     def context_item_keys(self) -> List[str]:
         return os.listdir(os.path.join(self.base_dir, '/'.join(self.context_stack)))
@@ -186,6 +192,7 @@ class TfObject:
         return f"tf_obj-{self.class_registration_name}-v{self.version};config-{self.config.key}"
 
     def store_in_cache(self, cache: Cache) -> None:
+        print(f"Saving tfobject {self.key} in {cache.filename(self.key)}")
         cache[self.key] = (self.class_registration_name, self.config, self.values)
         config_fname = cache.full_key(self.key) + '_description.txt'
         with open(config_fname, 'w') as f:
@@ -229,7 +236,7 @@ class TfObject:
 
     def store_training_checkpoint(self, cache: Cache, itr: int, extra_data={}):
         with cache.context('training'):
-            with cache.context(cache.full_key(self.key)):
+            with cache.context(cache.hash_key(self.key)):
                 with cache.context(str(itr)):
                     self.store_in_cache(cache)
                     for key, value in extra_data.items():
@@ -237,7 +244,7 @@ class TfObject:
 
     def restore_training_checkpoint(self, cache: Cache):
         with cache.context('training'):
-            with cache.context(cache.full_key(self.key)):
+            with cache.context(cache.hash_key(self.key)):
                 available_itrs = cache.context_item_keys()
                 if not available_itrs:
                     assert False, "restore initialized from empty context, cannot resume training"

@@ -211,52 +211,60 @@ def main(
         with tf.Graph().as_default():
             with tf.Session(config=config) as sess:
                 tf.random.set_random_seed(seed)
-                with cache.context('expert'):
-                    """
-                    policy = policies.QTrainer(
+                if use_expert_file:
+                    expert = experiments.TfObject.create_from_file(
                         env=env,
-                        network='conv_only',
-                        total_timesteps=100000
+                        fname=use_expert_file
                     )
-                    """
-                    policy = policies.PPO2Trainer(
-                        env=env,
-                        network='cnn',
-                        total_timesteps=int(total_timesteps)
-                    )
-                    policy.cached_train(cache)
+                else:
+                    with cache.context('expert'):
+                        if expert_type == 'Q':
+                            expert = policies.easy_init_Q(
+                                env=env,
+                                network='conv_only',
+                                total_timesteps=100000
+                            )
+                        else:
+                            expert = policies.easy_init_PPO(
+                                env=env,
+                                network='cnn',
+                                total_timesteps=int(total_timesteps)
+                            )
+                            expert.cached_train(cache)
 
                 with cache.context('trajectories'):
-                    sampler = policies.Sampler(
-                        env=env,
-                        policy=policy
-                    )
-                    trajectories = sampler.cached_sample_trajectories(
-                        cache,
-                        num_trajectories=num_trajectories,
-                        one_hot_code=True
-                    )
+                    with cache.context(cache.hash_key(expert.key)):
+                        sampler = policies.Sampler(
+                            env=env,
+                            policy=expert
+                        )
+                        trajectories = sampler.cached_sample_trajectories(
+                            cache,
+                            num_trajectories=num_trajectories,
+                            one_hot_code=True
+                        )
 
     # TODO(Aaron): Train an encoder
 
-    with tf.Graph().as_default():
-        with tf.Session(config=config) as sess:
-            tf.random.set_random_seed(seed)
-            with cache.context('irl'):
-                irl_runner = IRL(
-                    env=env,
-                    cache=cache,
-                    trajectories=trajectories,
-                    policy_args={
-                        'policy_type': 'Q', #'PPO2',
-                        'network': 'conv_only', #'cnn',
-                        'total_timesteps': 1000000
-                    },
-                    score_discrim=score_discrim,
-                    fixed_buffer_ratio=update_ratio,
-                    buffer_size=buffer_size
-                )
-                irl_runner.train()
+    if do_irl:
+        with tf.Graph().as_default():
+            with tf.Session(config=config) as sess:
+                tf.random.set_random_seed(seed)
+                with cache.context('irl'):
+                    irl_runner = IRL(
+                        env=env,
+                        cache=cache,
+                        trajectories=trajectories,
+                        policy_args={
+                            'policy_type': 'Q', #'PPO2',
+                            'network': 'conv_only', #'cnn',
+                            'total_timesteps': 1000000
+                        },
+                        score_discrim=score_discrim,
+                        fixed_buffer_ratio=update_ratio,
+                        buffer_size=buffer_size
+                    )
+                    irl_runner.train()
 
     env.reset()
     env.close()
