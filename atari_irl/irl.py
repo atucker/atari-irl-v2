@@ -170,26 +170,20 @@ class IRL:
             ):
                 self.log_performance(i)
 
-            """
-            if i % 4096 == 0:
-                print("Doing a cache roundtrip...")
-                with self.cache.context('training'):
-                    with self.cache.context(str(i)):
-                        self.policy.store_in_cache(self.cache)
-                        self.policy.restore_values_from_cache(self.cache)
-            """
-
 
 def main(
         *,
         env_name='PLECatcher-v0',
         total_timesteps=10e6,
-        num_trajectories=8,
+        num_trajectories=10,
         use_trajectories_file='',
+        use_expert_file='',
         score_discrim=True,
         update_ratio=32,
         buffer_size=None,
-        seed=0
+        seed=0,
+        do_irl=True,
+        expert_type='PPO'
 ):
     cache = experiments.FilesystemCache('test_cache')
     env = environments.make_vec_env(
