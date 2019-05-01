@@ -202,10 +202,10 @@ class PPO2TrainingConfiguration(Configuration):
         cliprange=0.1,
         nsteps=128,
         nminibatches=4,
-        noptepochs=3,
+        noptepochs=4,
         nenvs=8,
         ent_coef=0.01,
-        vf_coef=1,
+        vf_coef=0.5,
         max_grad_norm=0.5,
         seed=0
     )
