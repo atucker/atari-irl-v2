@@ -240,42 +240,26 @@ class PPO2Info(PolicyInfo):
 
 class PPO2Trainer(PolicyTrainer, TfObject):
     info_class = PPO2Info
+    config_class = PPO2Config
     class_registration_name = 'PPO2Network'
     
     def __init__(
             self,
             env: VecEnv,
-            network: str,
-            total_timesteps: int=10e6,
-            seed=0,
-            **network_kwargs
+            config: PPO2Config
     ) -> None:
-        super().__init__(env)
+        PolicyTrainer.__init__(self, env)
 
         self.env = env
 
-        training_config = PPO2TrainingConfiguration(
-            total_timesteps=total_timesteps,
-            nenvs=env.num_envs,
-            seed=seed
-        )
+        training_config = config.training
         self.nbatch = training_config.nenvs * training_config.nsteps
         self.nbatch_train = self.nbatch // training_config.nminibatches
         self.nupdates = training_config.total_timesteps // self.nbatch
-
         self.tfirststart = None
         self.model = None
-        
-        TfObject.__init__(self, PPO2Config(
-            training=training_config,
-            network=NetworkKwargsConfiguration(
-                network=network,
-                network_kwargs=network_kwargs
-            ),
-            env=EnvConfiguration(
-                name=env.unwrapped.specs[0].id
-            )
-        ))
+
+        TfObject.__init__(self, config)
 
     def initialize_graph(self):
         print('initializing!')
@@ -463,6 +447,32 @@ class PPO2Trainer(PolicyTrainer, TfObject):
 TfObject.register_cachable_class('PPO2Network', PPO2Trainer)
 
 
+def easy_init_PPO(
+        env: VecEnv,
+        network: str,
+        total_timesteps: int = 10e6,
+        seed=0,
+        **network_kwargs
+) -> PPO2Trainer:
+    return PPO2Trainer(
+        env=env,
+        config=PPO2Config(
+            training=PPO2TrainingConfiguration(
+                total_timesteps=total_timesteps,
+                nenvs=env.num_envs,
+                seed=seed
+            ),
+            network=NetworkKwargsConfiguration(
+                network=network,
+                network_kwargs=network_kwargs
+            ),
+            env=EnvConfiguration(
+                name=env.unwrapped.specs[0].id
+            )
+        )
+    )
+
+
 class QInfo(PolicyInfo):
     _fields = ('time_shape', 'actions', 'explore_frac')
 
@@ -510,11 +520,7 @@ class QTrainer(PolicyTrainer, TfObject):
     def __init__(
             self,
             env: VecEnv,
-            network: str,
-            total_timesteps=100000,
-            learning_starts=1000,
-            seed=0,
-            **network_kwargs
+            config: QConfig
     ) -> None:
         PolicyTrainer.__init__(self, env)
 
@@ -524,20 +530,7 @@ class QTrainer(PolicyTrainer, TfObject):
         self.act = None
 
         self.env = env
-        TfObject.__init__(self, QConfig(
-            training=QTrainingConfiguration(
-                total_timesteps=total_timesteps,
-                learning_starts=learning_starts,
-                seed=seed
-            ),
-            network=NetworkKwargsConfiguration(
-                network=network,
-                network_kwargs=network_kwargs
-            ),
-            env=EnvConfiguration(
-                name=env.unwrapped.specs[0].id
-            )
-        ))
+        TfObject.__init__(self, config)
 
         # Create the replay buffer
         self.beta_schedule = None
@@ -689,3 +682,28 @@ class QTrainer(PolicyTrainer, TfObject):
 
 
 TfObject.register_cachable_class('QNetwork', QTrainer)
+
+
+def easy_init_Q(
+    env: VecEnv,
+    network: str,
+    total_timesteps=100000,
+    learning_starts=1000,
+    seed=0,
+    **network_kwargs
+) -> None:
+    config = QConfig(
+        training=QTrainingConfiguration(
+            total_timesteps=total_timesteps,
+            learning_starts=learning_starts,
+            seed=seed
+        ),
+        network=NetworkKwargsConfiguration(
+            network=network,
+            network_kwargs=network_kwargs
+        ),
+        env=EnvConfiguration(
+            name=env.unwrapped.specs[0].id
+        )
+    )
+    return QTrainer(env=env, config=config)

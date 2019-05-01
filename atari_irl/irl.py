@@ -67,6 +67,10 @@ class IRL:
         self.T = 5000000000
 
         policy_type = policy_args.pop('policy_type')
+        make_policy_fn = {
+            'Q': policies.easy_init_Q,
+            'PPO2': policies.easy_init_PPO
+        }[policy_type]
         policy_class = {
             'Q': policies.QTrainer,
             'PPO2': policies.PPO2Trainer
@@ -78,7 +82,7 @@ class IRL:
             self.fixed_buffer_ratio *= 128
             policy_args['learning_starts'] = self.fixed_buffer_ratio
 
-        self.policy = policy_class(
+        self.policy = make_policy_fn(
             env=self.env,
             **policy_args
         )
@@ -102,7 +106,6 @@ class IRL:
 
         self.eval_epinfobuf = deque(maxlen=100)
         self.total_episodes = 0
-
         
     def obtain_samples(self):
         batch = self.sampler.sample_batch(self.batch_t)

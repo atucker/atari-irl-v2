@@ -211,13 +211,19 @@ class TfObject:
         assert class_name not in cls._cachable_classes
         cls._cachable_classes[class_name] = obj_class
 
+
     @classmethod
-    def create_from_cache(cls, cache: Cache, key: str) -> 'TfObject':
-        (class_name, config_from_cache, values) = cache[key]
+    def create_from_file(cls, env: Any, fname: str) -> 'TfObject':
+        #TODO(Aaron): restore the original version, then move this to PolicyTrainer
+        (class_name, config_from_cache, values) = joblib.load(fname)
         assert class_name in cls._cachable_classes
-        initialized_object = cls._cachable_classes[class_name](config_from_cache)
+        initialized_object = cls._cachable_classes[class_name](env, config_from_cache)
         initialized_object.restore(values)
         return initialized_object
+
+    @classmethod
+    def create_from_cache(cls, cache: Cache, key: str) -> 'TfObject':
+        return cls._create_from_tuple(cache[key])
 
     # Method for automatically training a model or retrieving it from the cache
     def cached_train(self, cache: Cache) -> 'TfObject':
