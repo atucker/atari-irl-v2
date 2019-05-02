@@ -215,7 +215,8 @@ class PPO2Config(Configuration):
     default_values = dict(
         training=PPO2TrainingConfiguration(),
         network=NetworkKwargsConfiguration(),
-        env=EnvConfiguration()
+        env=EnvConfiguration(),
+        version=1
     )
 
 
