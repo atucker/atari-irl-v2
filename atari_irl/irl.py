@@ -140,7 +140,7 @@ class IRL:
         logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in self.eval_epinfobuf]))
         logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in self.eval_epinfobuf]))
         logger.logkv('buffer size', self.buffer.time_shape.size)
-        logger.logkv('memory used', psutil.virtual_memory())
+        logger.logkv('memory used', psutil.virtual_memory().used)
         logger.dumpkvs()
 
     def train(self):
