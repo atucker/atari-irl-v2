@@ -13,6 +13,7 @@ from .headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer
 
 import pickle
 import os
+import psutil
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
@@ -139,6 +140,7 @@ class IRL:
         logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in self.eval_epinfobuf]))
         logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in self.eval_epinfobuf]))
         logger.logkv('buffer size', self.buffer.time_shape.size)
+        logger.logkv('memory used', psutil.virtual_memory())
         logger.dumpkvs()
 
     def train(self):
