@@ -319,9 +319,10 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             self.tfirststart = tstart
 
         # Calculate the learning rate
-        lrnow = self.config.training.lr * frac
+        # in baselines these are defaulted to constant functions
+        lrnow = self.config.training.lr
         # Calculate the cliprange
-        cliprangenow = self.config.training.cliprange * frac
+        cliprangenow = self.config.training.cliprange
         
         batch = buffer.latest_batch
         
