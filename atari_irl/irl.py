@@ -7,7 +7,7 @@ from baselines.common.vec_env import VecEnv
 from baselines import logger
 from baselines.ppo2.ppo2 import safemean
 
-from . import environments, policies, buffers, discriminators, experts, experiments
+from . import environments, policies, buffers, discriminators, experts, experiments, utils
 from .headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer, SamplerState
 
 
@@ -149,22 +149,28 @@ class IRL:
         logger.configure()
         
         for i in range(int(self.T)):
-            samples = self.obtain_samples()
-            self.buffer.add_batch(samples)
+            with utils.light_log_mem("sample step"):
+                samples = self.obtain_samples()
+                self.buffer.add_batch(samples)
+
             if self.mask_rewards: assert np.isclose(samples.rewards.sum(), 0.0)
-            self.policy.train_step(
-                buffer=self.buffer,
-                itr=i,
-                log_freq=log_freq,
-                logger=logger
-            )
-            if i % discriminator_train_freq == 0 and self.train_discriminator:
-                self.discriminator.train_step(
+
+            with utils.light_log_mem("policy train step"):
+                self.policy.train_step(
                     buffer=self.buffer,
-                    policy=self.policy,
                     itr=i,
+                    log_freq=log_freq,
                     logger=logger
                 )
+
+            if i % discriminator_train_freq == 0 and self.train_discriminator:
+                with utils.light_log_mem("discriminator train step"):
+                    self.discriminator.train_step(
+                        buffer=self.buffer,
+                        policy=self.policy,
+                        itr=i,
+                        logger=logger
+                    )
 
             if (
                 self.train_discriminator and i % discriminator_train_freq == 0 or

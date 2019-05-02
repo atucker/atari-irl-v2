@@ -1,7 +1,8 @@
 import numpy as np
 from typing import Type, NamedTuple, Any, Union
 from collections import OrderedDict
-
+import psutil
+from contextlib import contextmanager
 
 class Stacker:
     def __init__(self, other_cls: Type) -> None:
@@ -27,3 +28,11 @@ def one_hot(x, dim):
 
 def inv_sf01(arr, s):
     return arr.reshape(s[1], s[0], *s[2:]).swapaxes(0, 1)
+
+
+@contextmanager
+def light_log_mem(name):
+    before_mem = psutil.virtual_memory().used / 1024
+    yield
+    after_mem = psutil.virtual_memory().used / 1024
+    print(f"{before_mem} used before {name}, increased by {after_mem - before_mem}")
