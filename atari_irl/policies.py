@@ -393,6 +393,13 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             for (lossval, lossname) in zip(lossvals, self.model.loss_names):
                 logger.logkv(lossname, lossval)
 
+        del obs
+        del returns
+        del masks
+        del actions
+        del values
+        del neglogpacs
+
         if cache and save_freq and (itr % save_freq == 0):
             with cache.context('training'):
                 with cache.context(str(itr)):
