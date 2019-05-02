@@ -176,7 +176,7 @@ class Buffer(Generic[T]):
                                 sf01(self._latest_batch.acts),
                                 self.discriminator.dU
                             ),
-                            log_probs=sf01(self._latest_batch.policy_info.lprobs)
+                            lprobs=sf01(self._latest_batch.policy_info.lprobs)
                         ),
                         self._latest_batch.rewards.shape
                     ),
