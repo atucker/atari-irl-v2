@@ -693,11 +693,12 @@ def easy_init_Q(
     learning_starts=1000,
     seed=0,
     **network_kwargs
-) -> None:
+) -> QTrainer:
     config = QConfig(
         training=QTrainingConfiguration(
             total_timesteps=total_timesteps,
             learning_starts=learning_starts,
+            target_network_update_freq=int(10000/env.num_envs),
             seed=seed
         ),
         network=NetworkKwargsConfiguration(
