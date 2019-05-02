@@ -147,10 +147,10 @@ class AtariAIRL:
     def _process_discrim_output(self, score):
         score = np.clip(score, 1e-7, 1 - 1e-7)
 
-        score = -np.log(1 - score)#np.log(score) - np.log(1 - score)
+        score = - np.log(1 - score)# + np.log(score)
         score = score[:, 0]
-        #return np.clip((score - self.score_mean) / self.score_std, -3, 3), score
         return score, score
+        #return np.clip((score - self.score_mean) / self.score_std, -3, 3), score
 
     def train_step(self, buffer: Buffer, policy: PolicyTrainer, batch_size=256, lr=1e-3, verbose=False, itr=0, **kwargs):
         if batch_size > buffer.time_shape.size:
