@@ -178,7 +178,7 @@ class BatchedList:
             
         self._data.append(batch)
         if self.maxlen is not None and len(self._data) > self.maxlen:
-            self._data.pop(0)
+            del self._data[0]
         
     def get_idxs(self, key):
         if isinstance(key, tuple):
