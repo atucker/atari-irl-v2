@@ -174,7 +174,8 @@ class IRL:
 def main(
         *,
         env_name='PLECatcher-v0',
-        total_timesteps=10e6,
+        expert_total_timesteps=10e6,
+        imitator_total_timesteps=10e6,
         num_trajectories=10,
         use_trajectories_file='',
         use_expert_file='',
@@ -183,8 +184,10 @@ def main(
         buffer_size=None,
         seed=0,
         do_irl=True,
-        expert_type='PPO'
+        expert_type='PPO',
+        imitator_policy_type='PPO'
 ):
+    print(f"Running process {os.getpid()}")
     cache = experiments.FilesystemCache('test_cache')
     env = environments.make_vec_env(
         env_name=env_name,
@@ -219,13 +222,13 @@ def main(
                             expert = policies.easy_init_Q(
                                 env=env,
                                 network='conv_only',
-                                total_timesteps=100000
+                                total_timesteps=int(expert_total_timesteps)
                             )
                         else:
                             expert = policies.easy_init_PPO(
                                 env=env,
                                 network='cnn',
-                                total_timesteps=int(total_timesteps)
+                                total_timesteps=int(expert_total_timesteps)
                             )
                             expert.cached_train(cache)
 
@@ -243,6 +246,20 @@ def main(
 
     # TODO(Aaron): Train an encoder
 
+    policy_args = {}
+    if imitator_policy_type == 'Q':
+        policy_args = {
+            'policy_type': 'Q',
+            'network': 'conv_only',
+            'total_timesteps': int(imitator_total_timesteps)
+        }
+    else:
+        policy_args = {
+            'policy_type': 'PPO2',
+            'network': 'cnn',
+            'total_timesteps': int(imitator_total_timesteps)
+        }
+
     if do_irl:
         with tf.Graph().as_default():
             with tf.Session(config=config) as sess:
@@ -252,11 +269,7 @@ def main(
                         env=env,
                         cache=cache,
                         trajectories=trajectories,
-                        policy_args={
-                            'policy_type': 'Q', #'PPO2',
-                            'network': 'conv_only', #'cnn',
-                            'total_timesteps': 1000000
-                        },
+                        policy_args=policy_args,
                         score_discrim=score_discrim,
                         fixed_buffer_ratio=update_ratio,
                         buffer_size=buffer_size

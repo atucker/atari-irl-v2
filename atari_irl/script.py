@@ -3,7 +3,8 @@ from atari_irl.irl import main
 
 parser = argparse.ArgumentParser(description='Process some integers.')
 parser.add_argument('--env_name',  type=str, help='environment name', default='PLECatcher-v0')
-parser.add_argument('--total_timesteps_expert', type=float, default=40e6)
+parser.add_argument('--expert_total_timesteps', type=float, default=40e6)
+parser.add_argument('--imitator_total_timesteps', type=float, default=100e6)
 parser.add_argument('--num_trajectories', type=int, default=10)
 parser.add_argument('--use_trajectories_file', type=str, default='')
 parser.add_argument('--use_expert_file', type=str, default='')
@@ -11,6 +12,8 @@ parser.add_argument('--score_discrim', type=bool, default=True)
 parser.add_argument('--update_ratio', type=int, default=32)
 parser.add_argument('--buffer_size', type=int, default=None)
 parser.add_argument('--seed', type=int, default=0)
+parser.add_argument('--expert_type', type=str, default='PPO')
+parser.add_argument('--imitator_policy_type', type=str, default='PPO')
 parser.add_argument('--do_irl', type=bool, default=True)
 
 args = parser.parse_args()
@@ -19,7 +22,8 @@ print(args)
 
 main(
     env_name=args.env_name,
-    total_timesteps=args.total_timesteps_expert,
+    expert_total_timesteps=args.expert_total_timesteps,
+    imitator_total_timesteps=args.imitator_total_timesteps,
     num_trajectories=args.num_trajectories,
     use_trajectories_file=args.use_trajectories_file,
     use_expert_file=args.use_expert_file,
@@ -27,5 +31,7 @@ main(
     update_ratio=args.update_ratio,
     buffer_size=args.buffer_size,
     seed=args.seed,
+    expert_type=args.expert_type,
+    imitator_policy_type=args.imitator_policy_type,
     do_irl=args.do_irl
 )
