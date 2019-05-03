@@ -163,7 +163,7 @@ class Context(NamedTuple):
 class TfObject:
     _cachable_classes = {}
     class_registration_name = None
-    version = 0
+    version = 0.1
 
     def __init__(self, config, scope_name='', initialize=True):
         self.config = config
