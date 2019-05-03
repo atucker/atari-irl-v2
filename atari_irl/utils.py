@@ -1,6 +1,7 @@
 import numpy as np
 from typing import Type, NamedTuple, Any, Union
 from collections import OrderedDict
+import os
 import psutil
 from contextlib import contextmanager
 
@@ -32,7 +33,8 @@ def inv_sf01(arr, s):
 
 @contextmanager
 def light_log_mem(name):
-    before_mem = psutil.virtual_memory().used / 1024
+    process = psutil.Process(os.getpid())
+    before_mem = process.memory_info().rss / (1024 * 1024)
     yield
-    after_mem = psutil.virtual_memory().used / 1024
-    print(f"{before_mem} used before {name}, increased by {after_mem - before_mem}")
+    after_mem = process.memory_info().rss / (1024 * 1024)
+    print(f"{int(before_mem)}MB used before {name}, increased by {int(after_mem - before_mem)}MB")

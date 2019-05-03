@@ -56,13 +56,21 @@ class Sampler:
         self.obs = self.env.reset()
         self.dones = np.zeros(self.num_envs).astype(np.bool)
 
+    @profile
     def sample_batch(self, rollout_t: int, show=False) -> Batch:
         assert self.obs is not None, "Need to call reset"
         assert issubclass(self.policy.info_class, PolicyInfo)
 
         env_info_stacker = Stacker(EnvInfo)
         policy_info_stacker = Stacker(self.policy.info_class)
-
+        
+        obs = np.zeros((rollout_t, self.env.num_envs) + self.env.observation_space.shape)
+        nobs = np.zeros((rollout_t, self.env.num_envs) + self.env.observation_space.shape)
+        rewards = np.zeros((rollout_t, self.env.num_envs))
+        dones = np.zeros((rollout_t, self.env.num_envs))
+        next_dones = np.zeros((rollout_t, self.env.num_envs))
+        epinfobuf = []
+        
         time_step = TimeShape(num_envs=self.num_envs)
         time_shape = TimeShape(num_envs=self.num_envs, T=rollout_t)
 
@@ -74,39 +82,54 @@ class Sampler:
             policy_info_stacker.append(policy_step)
             actions = policy_step.actions
 
-            obs_copy = self.obs.copy()
-            dones_copy = self.dones.copy()
+            # we don't need to explicitly call copy on these, since the
+            # self.obs variable is going to be pointing at a new numpy
+            # array, and this is just keeping around the old reference
+            #obs_copy = self.obs
+            #dones_copy = self.dones
+            np.copyto(obs[_, :], self.obs)
+            assert not np.isclose(np.sum(self.obs), 0)
+            dones[_, :] = self.dones
 
-            self.obs[:], rewards, self.dones, epinfos = self.env.step(actions)
+            self.obs[:], step_rewards, self.dones, epinfos = self.env.step(actions)
             if show:
                 self.env.render()
-
+                
+            rewards[_, :] = step_rewards
+            np.copyto(nobs[_, :], self.obs)
+            next_dones[_, :] = self.dones
+            for info in epinfos:
+                if info.get('episode'):
+                    epinfobuf.append(info.get('episode'))
+                
+            """
             env_info_stacker.append(EnvInfo(
                 time_shape=time_shape,
-                obs=obs_copy,
-                next_obs=self.obs.copy(),
+                obs=None,
+                next_obs=None,
                 rewards=rewards,
                 dones=dones_copy,
-                next_dones=self.dones.copy(),
+                next_dones=self.dones
                 epinfobuf=[
                     info.get('episode') for info in epinfos if info.get('episode')
                 ]
             ))
+            """
 
-        return Batch(
+        batch = Batch(
             time_shape=time_shape,
             sampler_state=SamplerState(
-                obs=self.obs.copy(),
-                dones=self.dones.copy()
+                obs=self.obs,
+                dones=self.dones
             ),
             env_info=EnvInfo(
                 time_shape=time_shape,
-                obs=np.array(env_info_stacker.obs),
-                next_obs=np.array(env_info_stacker.next_obs),
-                rewards=np.array(env_info_stacker.rewards),
-                dones=np.array(env_info_stacker.dones),
-                next_dones=np.array(env_info_stacker.next_dones),
-                epinfobuf=[_ for l in env_info_stacker.epinfobuf for _ in l]
+                obs=obs,#np.array(env_info_stacker.obs),
+                next_obs=nobs,#np.array(env_info_stacker.next_obs),
+                rewards=rewards,#np.array(env_info_stacker.rewards),
+                dones=dones,#np.array(env_info_stacker.dones),
+                next_dones=next_dones,#np.array(env_info_stacker.next_dones),
+                epinfobuf=epinfobuf#[_ for l in env_info_stacker.epinfobuf for _ in l]
             ),
             # TODO(Aaron): Make this a cleaner method, probably of stacker
             # where each field can define a lambda for how to process it
@@ -120,6 +143,8 @@ class Sampler:
                 )
             )
         )
+        del env_info_stacker
+        return batch
 
     def sample_trajectories(self, num_trajectories=10, render=False, one_hot_code=False):
         completed_trajectories = []
@@ -392,13 +417,14 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             logger.logkv("mean return", np.mean(mb_returns))
             for (lossval, lossname) in zip(lossvals, self.model.loss_names):
                 logger.logkv(lossname, lossval)
-
+        """
         del obs
         del returns
         del masks
         del actions
         del values
         del neglogpacs
+        """
 
         if cache and save_freq and (itr % save_freq == 0):
             with cache.context('training'):

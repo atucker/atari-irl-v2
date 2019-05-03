@@ -241,6 +241,7 @@ class AtariAIRL:
                 print('\tLoss:%f' % mean_loss)
                 print('\tAccuracy:%f' % mean_acc)
 
+        """
         if obs_batch is not None:
             del obs_batch
             del nobs_batch
@@ -252,7 +253,7 @@ class AtariAIRL:
             del expert_act_batch
             del nexpert_act_batch
             del expert_lprobs_batch
-
+        """
 
         if logger:
             logger.logkv('GCLDiscrimLoss', mean_loss)

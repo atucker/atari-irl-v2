@@ -14,6 +14,7 @@ from .headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer
 import pickle
 import os
 import psutil
+import gc
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
@@ -118,7 +119,7 @@ class IRL:
         else:
             rewards = batch.env_info.rewards
 
-        return Batch(
+        samples = Batch(
             time_shape=batch.time_shape,
             sampler_state=batch.sampler_state,
             env_info=EnvInfo(
@@ -132,6 +133,8 @@ class IRL:
             ),
             policy_info=batch.policy_info
         )
+        if self.mask_rewards: assert np.isclose(samples.rewards.sum(), 0.0)
+        return samples
         
     def log_performance(self, i):
         logger.logkv('itr', i)
@@ -140,7 +143,7 @@ class IRL:
         logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in self.eval_epinfobuf]))
         logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in self.eval_epinfobuf]))
         logger.logkv('buffer size', self.buffer.time_shape.size)
-        logger.logkv('memory used', psutil.virtual_memory().used)
+        logger.logkv('memory used (MB)', psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024))
         logger.dumpkvs()
 
     def train(self):
@@ -152,8 +155,6 @@ class IRL:
             with utils.light_log_mem("sample step"):
                 samples = self.obtain_samples()
                 self.buffer.add_batch(samples)
-
-            if self.mask_rewards: assert np.isclose(samples.rewards.sum(), 0.0)
 
             with utils.light_log_mem("policy train step"):
                 self.policy.train_step(
@@ -177,6 +178,8 @@ class IRL:
                 not self.train_discriminator and i % log_freq == 0
             ):
                 self.log_performance(i)
+                with utils.light_log_mem("garbage collection"):
+                    gc.collect()
 
 
 def main(

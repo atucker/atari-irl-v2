@@ -50,3 +50,5 @@ Werkzeug==0.14.1
 zmq==0.0.0
 tensorflow-gpu==1.13.1
 psutil
+line_profiler
+memory_profiler
