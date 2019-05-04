@@ -176,6 +176,11 @@ class DummyVecEnvWrapper(VecEnvWrapper):
         return self.venv.step_wait()
 
 
+def wrap_with_monitor(env):
+    logger_path = logger.get_dir()
+    return Monitor(env, logger_path, allow_early_resets=True)
+
+
 easy_env_modifiers = {
     'env_modifiers': [
         lambda env: wrap_deepmind(env, frame_stack=False, clip_rewards=False),
@@ -195,6 +200,7 @@ atari_modifiers = {
     'env_modifiers': [
         wrap_env_with_args(NoopResetEnv, noop_max=30),
         wrap_env_with_args(MaxAndSkipEnv, skip=4),
+        wrap_with_monitor,
         functools.partial(wrap_deepmind, episode_life=False, frame_stack=False),
     ],
     'vec_env_modifiers': [
@@ -506,8 +512,7 @@ def make_vec_env(*, env_name: str, seed=0, one_hot_code=False, num_envs=8) -> Ve
     def make_env(i):
         def _thunk():
             env = gym.make(env_name)
-            logger_path = logger.get_dir()
-            env = Monitor(env, logger_path, allow_early_resets=True)
+            #env = Monitor(env, logger_path, allow_early_resets=True)
             env.seed(seed + i)
             for fn in env_modifiers:
                 env = fn(env)
