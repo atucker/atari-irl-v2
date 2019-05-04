@@ -346,7 +346,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
 
         # Calculate the learning rate
         # in baselines these are defaulted to constant functions
-        lrnow = self.config.training.lr
+        lrnow = self.config.training.lr * frac
         # Calculate the cliprange
         cliprangenow = self.config.training.cliprange
         
