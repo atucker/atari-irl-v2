@@ -46,7 +46,8 @@ class IRL:
             ablation=None,
             score_discrim=True,
             fixed_buffer_ratio=32,
-            buffer_size=None
+            buffer_size=None,
+            state_only=False,
     ):
         self.env = env
 
@@ -63,7 +64,8 @@ class IRL:
             env=self.env,
             expert_buffer=experts.ExpertBuffer.from_trajectories(trajectories),
             score_discrim=score_discrim,
-            max_itrs=100
+            max_itrs=100,
+            state_only=state_only
         )
 
         self.T = 5000000000
@@ -196,7 +198,9 @@ def main(
         seed=0,
         do_irl=True,
         expert_type='PPO',
-        imitator_policy_type='PPO'
+        imitator_policy_type='PPO',
+        state_only=False,
+        num_envs=8
 ):
     print(f"Running process {os.getpid()}")
     cache = experiments.FilesystemCache('test_cache')
@@ -204,7 +208,7 @@ def main(
         env_name=env_name,
         seed=seed,
         one_hot_code=False,
-        num_envs=8
+        num_envs=num_envs
     )
     ncpu=32
     config = tf.ConfigProto(
@@ -283,9 +287,12 @@ def main(
                         policy_args=policy_args,
                         score_discrim=score_discrim,
                         fixed_buffer_ratio=update_ratio,
-                        buffer_size=buffer_size
+                        buffer_size=buffer_size,
+                        state_only=state_only
                     )
                     irl_runner.train()
 
     env.reset()
     env.close()
+
+    return

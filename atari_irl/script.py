@@ -1,6 +1,10 @@
 import argparse
 from atari_irl.irl import main
 
+def handle_bool(var):
+    var = var.lower()
+
+
 parser = argparse.ArgumentParser(description='Process some integers.')
 parser.add_argument('--env_name',  type=str, help='environment name', default='PLECatcher-v0')
 parser.add_argument('--expert_total_timesteps', type=float, default=40e6)
@@ -14,7 +18,12 @@ parser.add_argument('--buffer_size', type=int, default=None)
 parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--expert_type', type=str, default='PPO')
 parser.add_argument('--imitator_policy_type', type=str, default='PPO')
-parser.add_argument('--do_irl', type=bool, default=True)
+parser.add_argument('--state_only', dest='state_only', action='store_true')
+parser.set_defaults(state_only=False)
+parser.add_argument('--irl', dest='do_irl', action='store_true')
+parser.add_argument('--no-irl', dest='do_irl', action='store_false')
+parser.set_defaults(do_irl=True)
+parser.add_argument('--num_envs', type=int, default=8)
 
 args = parser.parse_args()
 
@@ -33,5 +42,7 @@ main(
     seed=args.seed,
     expert_type=args.expert_type,
     imitator_policy_type=args.imitator_policy_type,
-    do_irl=args.do_irl
+    do_irl=args.do_irl,
+    state_only=args.state_only,
+    num_envs=args.num_envs
 )

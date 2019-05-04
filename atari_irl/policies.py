@@ -56,7 +56,6 @@ class Sampler:
         self.obs = self.env.reset()
         self.dones = np.zeros(self.num_envs).astype(np.bool)
 
-    @profile
     def sample_batch(self, rollout_t: int, show=False) -> Batch:
         assert self.obs is not None, "Need to call reset"
         assert issubclass(self.policy.info_class, PolicyInfo)
@@ -536,7 +535,8 @@ class QTrainingConfiguration(Configuration):
         prioritized_replay=False,
         grad_norm_clipping=10,
         exploration_initial_p=1.0,
-        seed=0
+        seed=0,
+        nenv=8
     )
 
 
@@ -681,8 +681,8 @@ class QTrainer(PolicyTrainer, TfObject):
             
         if logger and log_freq and itr % log_freq == 0:
             logger.logkv('"% time spent exploring"', int(100 * buffer.policy_info.explore_frac[-1]))
-            if t > self.config.training.learning_starts and t % self.config.training.train_freq == 0:
-                logger.logkv("mean reward", np.mean(rewards))
+            #if t > self.config.training.learning_starts and t % self.config.training.train_freq == 0:
+                #logger.logkv("mean reward", np.mean(rewards))
         self.t += 1
 
         if cache and save_freq and (itr % save_freq == 0):
@@ -738,7 +738,8 @@ def easy_init_Q(
             total_timesteps=total_timesteps,
             learning_starts=learning_starts,
             target_network_update_freq=int(10000/env.num_envs),
-            seed=seed
+            seed=seed,
+            nenv=env.num_envs
         ),
         network=NetworkKwargsConfiguration(
             network=network,
