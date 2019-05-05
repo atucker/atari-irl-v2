@@ -37,4 +37,4 @@ def light_log_mem(name):
     before_mem = process.memory_info().rss / (1024 * 1024)
     yield
     after_mem = process.memory_info().rss / (1024 * 1024)
-    #print(f"{int(before_mem)}MB used before {name}, increased by {int(after_mem - before_mem)}MB")
+    print(f"{int(before_mem)}MB used before {name}, increased by {int(after_mem - before_mem)}MB")
