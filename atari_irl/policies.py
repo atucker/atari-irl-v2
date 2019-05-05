@@ -397,16 +397,16 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         # in baselines these are defaulted to constant functions
         lrnow = self.config.training.lr * frac
         # Calculate the cliprange
-        cliprangenow = self.config.training.cliprange
-        
+        cliprangenow = self.config.training.cliprange * frac
+
         batch = buffer.latest_batch
-        
         # discount/bootstrap off value fn
         last_values = self.model.value(
             batch.sampler_state.obs,
             S=None,
             M=batch.sampler_state.dones
         )
+
         mb_returns = np.zeros_like(batch.rewards)
         mb_advs = np.zeros_like(batch.rewards)
         lastgaelam = 0
