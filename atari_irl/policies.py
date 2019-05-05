@@ -427,12 +427,9 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         actions = sf01(batch.acts)
         values = sf01(batch.policy_info.values)
         neglogpacs = sf01(batch.policy_info.neglogpacs)
-        
-        # Index of each element of batch_size
-        # Create the indices array
-        inds = np.arange(self.nbatch)
-        mblossvals = []
 
+        mblossvals = []
+        inds = np.arange(self.nbatch)
         for _ in range(self.config.training.noptepochs):
             assert self.nbatch % self.config.training.nminibatches == 0
             # Randomize the indexes
@@ -466,14 +463,6 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             logger.logkv("mean return", np.mean(mb_returns))
             for (lossval, lossname) in zip(lossvals, self.model.loss_names):
                 logger.logkv(lossname, lossval)
-        """
-        del obs
-        del returns
-        del masks
-        del actions
-        del values
-        del neglogpacs
-        """
 
         if cache and save_freq and (itr % save_freq == 0):
             with cache.context('training'):
@@ -492,7 +481,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
 
         total_episodes = 0
         total_timesteps = 0
-        i = 0
+        i = 1
         eval_epinfobuf = []
         while total_timesteps < self.config.training.total_timesteps:
             batch = sampler.sample_batch(self.config.training.nsteps)
