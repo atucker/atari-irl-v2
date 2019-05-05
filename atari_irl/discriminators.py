@@ -2,11 +2,13 @@ import tensorflow as tf
 import numpy as np
 from baselines.a2c.utils import conv, fc, conv_to_fc
 import baselines.common.tf_util as U
+from .experiments import TfObject, Configuration
 from .headers import Stacker, Buffer, PolicyTrainer, EnvInfo, Batch
 from .utils import one_hot
 from typing import NamedTuple, Optional
 from baselines import logger
 import functools
+
 
 def batch_norm(x, name):
     shape = (1, *x.shape[1:])
@@ -39,30 +41,53 @@ def cnn_net(x, actions=None, dout=1, **conv_kwargs):
     return fc(h_final, 'output', nh=dout, init_scale=np.sqrt(2))
 
 
+class ArchConfiguration(Configuration):
+    default_values = dict(
+        network='cnn_net',
+        arch_args={}
+    )
+
+    def create(self, inpt, **kwargs):
+        create_fn = {'cnn_net': cnn_net}[self.network]
+        return create_fn(inpt, **kwargs, **self.arch_args)
+
+    @property
+    def obs_dtype(self):
+        if self.network == 'cnn_net':
+            return tf.int8
+        else:
+            return tf.float32
+
+
+class DiscriminatorConfiguration(Configuration):
+    default_values = dict(
+        name='discriminator',
+        reward_arch=ArchConfiguration(),
+        value_arch=ArchConfiguration(),
+        score_discrim=False,
+        discount=0.99,
+        state_only=False,
+        max_itrs=100,
+        drop_framestack=False,
+        seed=0
+    )
+
+
 class ItrData(NamedTuple):
     loss: float
     accuracy: float
     score: float
 
 
-class AtariAIRL:
+class AtariAIRL(TfObject):
     def __init__(
          self, *,
          env,
          expert_buffer,
-         reward_arch=cnn_net,
-         reward_arch_args={},
-         value_fn_arch=cnn_net,
-         score_discrim=False,
-         discount=0.99,
-         state_only=False,
-         max_itrs=100,
-         drop_framestack=False,
-         only_show_scores=False,
-         seed=0
+         config
     ):
-        name='reward_model'
-        self.seed = seed
+        self.expert_buffer = expert_buffer
+        self.config = config
 
         self.action_space = env.action_space
         self.dO = functools.reduce(
@@ -71,28 +96,45 @@ class AtariAIRL:
             1
         )
         self.dOshape = env.observation_space.shape
-        if drop_framestack:
+        if self.config.drop_framestack:
             assert len(self.dOshape) == 3
             self.dOshape = (*self.dOshape[:-1], 1)
         self.dU = env.action_space.n
 
-        self.score_discrim = score_discrim
-        self.state_only = state_only
-        self.drop_framestack = drop_framestack
+        self.score_discrim = self.config.score_discrim
+        self.state_only = self.config.state_only
+        self.drop_framestack = self.config.drop_framestack
         self.modify_obs = lambda obs: obs
+        self.gamma = self.config.discount
+        self.max_itrs = self.config.max_itrs
 
-        self.gamma = discount
+        self.obs_t = None
+        self.nobs_t = None
+        self.act_t = None
+        self.nact_t = None
+        self.labels = None
+        self.lprobs = None
+        self.lr = None
+        self.reward = None
+        self.value_fn = None
+        self.qfn = None
+        self.discrim_output = None
+        self.accuracy = None
+        self.update_accuracy = None
+        self.loss = None
+        self.step = None
+        self.grad_reward = None
+        self.score_mean = 0
+        self.score_std = 1
 
-        self.max_itrs = max_itrs
-        self.only_show_scores = only_show_scores
+        TfObject.__init__(self, config)
 
-        self.expert_buffer = expert_buffer
-
-        tf.random.set_random_seed(self.seed)
-        np.random.seed(self.seed)
-        with tf.variable_scope(name) as _vs:
+    def initialize_graph(self):
+        tf.random.set_random_seed(self.config.seed)
+        np.random.seed(self.config.seed)
+        with tf.variable_scope(self.config.name) as _vs:
             # Should be batch_size x T x dO/dU
-            obs_dtype = tf.int8 if reward_arch == cnn_net else tf.float32
+            obs_dtype = self.config.reward_arch.obs_dtype
             self.obs_t = tf.placeholder(obs_dtype, list((None,) + self.dOshape), name='obs')
             self.nobs_t = tf.placeholder(obs_dtype, list((None,) + self.dOshape), name='nobs')
             self.act_t = tf.placeholder(tf.float32, [None, self.dU], name='act')
@@ -105,21 +147,28 @@ class AtariAIRL:
                 rew_input = self.obs_t
                 with tf.variable_scope('reward'):
                     if self.state_only:
-                        self.reward = reward_arch(
-                            rew_input, dout=1, **reward_arch_args
+                        self.reward = self.config.reward_arch.create(
+                            rew_input,
+                            dout=1
                         )
                     else:
-                        print("Not state only", self.act_t)
-                        self.reward = reward_arch(
-                            rew_input, actions=self.act_t,
-                            dout=1, **reward_arch_args
+                        self.reward = self.config.reward_arch.create(
+                            rew_input,
+                            actions=self.act_t,
+                            dout=1
                         )
                         
                 # value function shaping
                 with tf.variable_scope('vfn'):
-                    fitted_value_fn_next = value_fn_arch(self.nobs_t, dout=1)
+                    fitted_value_fn_next = self.config.value_arch.create(
+                        self.nobs_t,
+                        dout=1
+                    )
                 with tf.variable_scope('vfn', reuse=True):
-                    self.value_fn = fitted_value_fn = value_fn_arch(self.obs_t, dout=1)
+                    self.value_fn = fitted_value_fn = self.config.value_arch.create(
+                        self.obs_t,
+                        dout=1
+                    )
 
                 # Define log p_tau(a|s) = r + gamma * V(s') - V(s)
                 self.qfn = self.reward + self.gamma * fitted_value_fn_next
@@ -231,29 +280,16 @@ class AtariAIRL:
                 accuracy=acc,
                 score=np.mean(score)
             ))
-            mean_loss = np.mean(stacker.loss)
-            mean_acc = np.mean(stacker.accuracy)
-            mean_score = np.mean(score)
 
 
-            if verbose and (it % int(self.max_itrs / 10) == 0 or it == self.max_itrs - 1):
-                print(f'\t{it}/{self.max_itrs}')
-                print('\tLoss:%f' % mean_loss)
-                print('\tAccuracy:%f' % mean_acc)
+        mean_loss = np.mean(stacker.loss)
+        mean_acc = np.mean(stacker.accuracy)
+        mean_score = np.mean(score)
+        if verbose and (it % int(self.max_itrs / 10) == 0 or it == self.max_itrs - 1):
+            print(f'\t{it}/{self.max_itrs}')
+            print('\tLoss:%f' % mean_loss)
+            print('\tAccuracy:%f' % mean_acc)
 
-        """
-        if obs_batch is not None:
-            del obs_batch
-            del nobs_batch
-            del act_batch
-            del nact_batch
-            del lprobs_batch
-            del expert_obs_batch
-            del nexpert_obs_batch
-            del expert_act_batch
-            del nexpert_act_batch
-            del expert_lprobs_batch
-        """
 
         if logger:
             logger.logkv('GCLDiscrimLoss', mean_loss)

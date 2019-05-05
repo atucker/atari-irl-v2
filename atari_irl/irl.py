@@ -63,9 +63,11 @@ class IRL:
         self.discriminator = None if not build_discriminator else discriminators.AtariAIRL(
             env=self.env,
             expert_buffer=experts.ExpertBuffer.from_trajectories(trajectories),
-            score_discrim=score_discrim,
-            max_itrs=100,
-            state_only=state_only
+            config=discriminators.DiscriminatorConfiguration(
+                score_discrim=score_discrim,
+                max_itrs=100,
+                state_only=state_only
+            )
         )
 
         self.T = 5000000000
@@ -245,7 +247,7 @@ def main(
                                 network='cnn',
                                 total_timesteps=int(expert_total_timesteps)
                             )
-                            expert.cached_train(cache)
+                        expert.cached_train(cache)
 
                 with cache.context('trajectories'):
                     with cache.context(cache.hash_key(expert.key)):
