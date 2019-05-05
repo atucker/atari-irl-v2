@@ -186,9 +186,6 @@ class AtariAIRL(TfObject):
             self.step = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss)
 
             self.grad_reward = tf.gradients(self.reward, [self.obs_t, self.act_t])
-
-            self.score_mean = 0
-            self.score_std = 1
             
             U.initialize()
             tf.get_default_session().run(tf.local_variables_initializer())
@@ -196,7 +193,7 @@ class AtariAIRL(TfObject):
     def _process_discrim_output(self, score):
         score = np.clip(score, 1e-7, 1 - 1e-7)
 
-        score = - np.log(1 - score)# + np.log(score)
+        score = np.log(score) - np.log(1 - score)
         score = score[:, 0]
         return score, score
         #return np.clip((score - self.score_mean) / self.score_std, -3, 3), score
