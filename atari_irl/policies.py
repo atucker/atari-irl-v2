@@ -24,9 +24,7 @@ import tensorflow as tf
 
 from .headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
 from .discriminators import AtariAIRL
-from .utils import one_hot
-
-from .utils import Stacker
+from .utils import one_hot, Stacker, set_seed
 from .headers import Batch, EnvInfo, SamplerState
 
 from .experiments import TfObject, Configuration, FilesystemCache
@@ -288,8 +286,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
 
     def initialize_graph(self):
         print('initializing!')
-        baselines.common.set_global_seeds(self.config.training.seed)
-        np.random.seed(self.config.training.seed)
+        set_seed(self.config.training.seed)
         self.model = baselines.ppo2.model.Model(
             policy=baselines.common.policies.build_policy(
                 self.env,
@@ -585,8 +582,7 @@ class QTrainer(PolicyTrainer, TfObject):
         self.env = env
 
     def initialize_graph(self):
-        baselines.common.set_global_seeds(self.config.training.seed)
-        np.random.seed(self.config.training.seed)
+        set_seed(self.config.training.seed)
         env = self.env
         q_func = deepq.build_q_func(
             self.config.network.network,

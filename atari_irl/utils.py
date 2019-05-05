@@ -4,6 +4,8 @@ from collections import OrderedDict
 import os
 import psutil
 from contextlib import contextmanager
+from baselines.common.misc_util import set_global_seeds
+import gym
 
 class Stacker:
     def __init__(self, other_cls: Type) -> None:
@@ -38,3 +40,8 @@ def light_log_mem(name):
     yield
     after_mem = process.memory_info().rss / (1024 * 1024)
     print(f"{int(before_mem)}MB used before {name}, increased by {int(after_mem - before_mem)}MB")
+
+
+def set_seed(seed):
+    set_global_seeds(seed)
+    gym.spaces.np_random.seed(seed)

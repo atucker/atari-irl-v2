@@ -4,7 +4,7 @@ from baselines.a2c.utils import conv, fc, conv_to_fc
 import baselines.common.tf_util as U
 from .experiments import TfObject, Configuration
 from .headers import Stacker, Buffer, PolicyTrainer, EnvInfo, Batch
-from .utils import one_hot
+from .utils import one_hot, set_seed
 from typing import NamedTuple, Optional
 from baselines import logger
 import functools
@@ -130,8 +130,7 @@ class AtariAIRL(TfObject):
         TfObject.__init__(self, config)
 
     def initialize_graph(self):
-        tf.random.set_random_seed(self.config.seed)
-        np.random.seed(self.config.seed)
+        set_seed(self.config.training.seed)
         with tf.variable_scope(self.config.name) as _vs:
             # Should be batch_size x T x dO/dU
             obs_dtype = self.config.reward_arch.obs_dtype
