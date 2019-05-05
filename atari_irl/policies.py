@@ -249,7 +249,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
 
         self.env = env
 
-        self.log_interval = 500
+        self.log_interval = 1
         self.save_interval = 5e6
         
         training_config = PPO2TrainingConfiguration(
