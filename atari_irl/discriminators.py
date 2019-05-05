@@ -130,7 +130,7 @@ class AtariAIRL(TfObject):
         TfObject.__init__(self, config)
 
     def initialize_graph(self):
-        set_seed(self.config.training.seed)
+        set_seed(self.config.seed)
         with tf.variable_scope(self.config.name) as _vs:
             # Should be batch_size x T x dO/dU
             obs_dtype = self.config.reward_arch.obs_dtype
