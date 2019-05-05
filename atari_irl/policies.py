@@ -54,6 +54,76 @@ class Sampler:
         self.obs = self.env.reset()
         self.dones = np.zeros(self.num_envs).astype(np.bool)
 
+    def old_sample_batch(self, rollout_t: int, show=False) -> Batch:
+        assert self.obs is not None, "Need to call reset"
+        assert issubclass(self.policy.info_class, PolicyInfo)
+
+        env_info_stacker = Stacker(EnvInfo)
+        policy_info_stacker = Stacker(self.policy.info_class)
+
+        time_step = TimeShape(num_envs=self.num_envs)
+        time_shape = TimeShape(num_envs=self.num_envs, T=rollout_t)
+
+        for _ in range(rollout_t):
+            policy_step = self.policy.get_actions(Observations(
+                time_shape=time_step,
+                observations=self.obs
+            ))
+            policy_info_stacker.append(policy_step)
+            actions = policy_step.actions
+
+            # we don't need to explicitly call copy on these, since the
+            # self.obs variable is going to be pointing at a new numpy
+            # array, and this is just keeping around the old reference
+            # obs_copy = self.obs
+            # dones_copy = self.dones
+            obs_copy = self.obs
+            dones_copy = self.dones
+
+            self.obs, rewards, self.dones, epinfos = self.env.step(actions)
+            if show:
+                self.env.render()
+
+            env_info_stacker.append(EnvInfo(
+                time_shape=time_shape,
+                obs=obs_copy,
+                next_obs=self.obs,
+                rewards=rewards,
+                dones=dones_copy,
+                next_dones=self.dones,
+                epinfobuf=[
+                    info.get('episode') for info in epinfos if info.get('episode')
+                ]
+            ))
+
+        return Batch(
+            time_shape=time_shape,
+            sampler_state=SamplerState(
+                obs=self.obs,
+                dones=self.dones
+            ),
+            env_info=EnvInfo(
+                time_shape=time_shape,
+                obs=np.array(env_info_stacker.obs),
+                next_obs=np.array(env_info_stacker.next_obs),
+                rewards=np.array(env_info_stacker.rewards),
+                dones=np.array(env_info_stacker.dones),
+                next_dones=np.array(env_info_stacker.next_dones),
+                epinfobuf=[_ for l in env_info_stacker.epinfobuf for _ in l]
+            ),
+            # TODO(Aaron): Make this a cleaner method, probably of stacker
+            # where each field can define a lambda for how to process it
+            # instead of assuming that we just use np.array
+            policy_info=self.policy.info_class(
+                time_shape=time_shape,
+                **dict(
+                    (field, np.array(getattr(policy_info_stacker, field)))
+                    for field in self.policy.info_class._fields
+                    if field != 'time_shape'
+                )
+            )
+        )
+
     def sample_batch(self, rollout_t: int, show=False) -> Batch:
         assert self.obs is not None, "Need to call reset"
         assert issubclass(self.policy.info_class, PolicyInfo)
@@ -82,10 +152,7 @@ class Sampler:
             # we don't need to explicitly call copy on these, since the
             # self.obs variable is going to be pointing at a new numpy
             # array, and this is just keeping around the old reference
-            #obs_copy = self.obs
-            #dones_copy = self.dones
-            np.copyto(obs[_, :], self.obs)
-            assert not np.isclose(np.sum(self.obs), 0)
+            obs[_, :] = self.obs
             dones[_, :] = self.dones
 
             self.obs[:], step_rewards, self.dones, epinfos = self.env.step(actions)
@@ -98,20 +165,6 @@ class Sampler:
             for info in epinfos:
                 if info.get('episode'):
                     epinfobuf.append(info.get('episode'))
-                
-            """
-            env_info_stacker.append(EnvInfo(
-                time_shape=time_shape,
-                obs=None,
-                next_obs=None,
-                rewards=rewards,
-                dones=dones_copy,
-                next_dones=self.dones
-                epinfobuf=[
-                    info.get('episode') for info in epinfos if info.get('episode')
-                ]
-            ))
-            """
 
         batch = Batch(
             time_shape=time_shape,
@@ -121,12 +174,12 @@ class Sampler:
             ),
             env_info=EnvInfo(
                 time_shape=time_shape,
-                obs=obs,#np.array(env_info_stacker.obs),
-                next_obs=nobs,#np.array(env_info_stacker.next_obs),
-                rewards=rewards,#np.array(env_info_stacker.rewards),
-                dones=dones,#np.array(env_info_stacker.dones),
-                next_dones=next_dones,#np.array(env_info_stacker.next_dones),
-                epinfobuf=epinfobuf#[_ for l in env_info_stacker.epinfobuf for _ in l]
+                obs=obs,
+                next_obs=nobs,
+                rewards=rewards,
+                dones=dones,
+                next_dones=next_dones,
+                epinfobuf=epinfobuf
             ),
             # TODO(Aaron): Make this a cleaner method, probably of stacker
             # where each field can define a lambda for how to process it
