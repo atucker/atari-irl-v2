@@ -318,8 +318,9 @@ class Batch(NamedTuple):
     def lprobs(self):
         return self.policy_info.lprobs
 
+
 class PolicyTrainer:
-    info_class = None
+    info_class = PolicyInfo
 
     def __init__(self, env: VecEnv) -> None:
         self.obs_space = env.observation_space
