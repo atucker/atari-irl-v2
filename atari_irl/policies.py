@@ -467,8 +467,13 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             logger.logkv("fps", fps)
             logger.logkv("explained_variance", float(ev))
             logger.logkv('time_elapsed', tnow - self.tfirststart)
-            logger.logkv("mean reward", np.mean(batch.rewards))
-            logger.logkv("mean return", np.mean(mb_returns))
+            logger.logkv("mean reward", np.mean(buffer.latest_batch.rewards))
+            logger.logkv("mean return", np.mean(returns))
+            logger.logkv("mean values", np.mean(values))
+            logger.logkv("mean neglogpacs", np.mean(neglogpacs))
+            logger.logkv("lr", lrnow)
+            logger.logkv("cliprange", cliprangenow)
+            logger.logkv("frac", frac)
             for (lossval, lossname) in zip(lossvals, self.model.loss_names):
                 logger.logkv(lossname, lossval)
 
