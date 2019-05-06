@@ -374,7 +374,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             neglogpacs=neglogpacs
         )
 
-    def get_probabilities_for_obs(self, obs: np.ndarray) -> np.ndarray:
+    def _get_action_probabilities_for_obs(self, obs: np.ndarray) -> np.ndarray:
         tm = self.model.train_model
         return tf.get_default_session().run(
             tf.nn.softmax(tm.pd.logits),
@@ -382,7 +382,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         )
 
     def get_a_logprobs(self, obs: np.ndarray, acts: np.ndarray) -> np.ndarray:
-        probs = self.get_probabilities_for_obs(obs)
+        probs = self._get_action_probabilities_for_obs(obs)
         return np.log((probs * acts).sum(axis=1))
 
     def calculate_returns(self, batch) -> np.ndarray:
