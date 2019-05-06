@@ -202,7 +202,8 @@ def main(
         expert_type='PPO',
         imitator_policy_type='PPO',
         state_only=False,
-        num_envs=8
+        num_envs=8,
+        load_policy_initialization=None
 ):
     print(f"Running process {os.getpid()}")
     cache = experiments.FilesystemCache('test_cache')
@@ -274,7 +275,8 @@ def main(
         policy_args = {
             'policy_type': 'PPO2',
             'network': 'cnn',
-            'total_timesteps': int(imitator_total_timesteps)
+            'total_timesteps': int(imitator_total_timesteps),
+            'load_initialization': load_policy_initialization
         }
 
     if do_irl:

@@ -24,6 +24,7 @@ parser.add_argument('--irl', dest='do_irl', action='store_true')
 parser.add_argument('--no-irl', dest='do_irl', action='store_false')
 parser.set_defaults(do_irl=True)
 parser.add_argument('--num_envs', type=int, default=8)
+parser.add_argument('--load_policy_initialization', type=str, default=None)
 
 args = parser.parse_args()
 

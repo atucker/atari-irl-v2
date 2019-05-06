@@ -264,7 +264,8 @@ class NetworkKwargsConfiguration(Configuration):
         # for baselines function creation, and so we'll keep this here
         # TODO(Aaron): serialize the baselines version as part of the cache
         network_kwargs={},
-        serialization_scheme='overrides_baselines_default_kwargs'
+        serialization_scheme='overrides_baselines_default_kwargs',
+        load_initialization=None
     )
 
 
@@ -355,6 +356,8 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             vf_coef=self.config.training.vf_coef,
             max_grad_norm=self.config.training.max_grad_norm
         )
+        if self.config.network.load_initialization:
+            self.model.load(self.config.network.load_file)
 
     def get_actions(self, obs_batch: Observations) -> PPO2Info:
         actions, values, _, neglogpacs = self.model.step(
@@ -525,6 +528,7 @@ def easy_init_PPO(
         network: str,
         total_timesteps: int = 10e6,
         seed=0,
+        load_initialization=None,
         **network_kwargs
 ) -> PPO2Trainer:
     return PPO2Trainer(
@@ -537,6 +541,7 @@ def easy_init_PPO(
             ),
             network=NetworkKwargsConfiguration(
                 network=network,
+                load_initialization=load_initialization,
                 network_kwargs=network_kwargs
             ),
             env=EnvConfiguration(
