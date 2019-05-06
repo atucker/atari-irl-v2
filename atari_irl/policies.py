@@ -385,24 +385,7 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         probs = self.get_probabilities_for_obs(obs)
         return np.log((probs * acts).sum(axis=1))
 
-    def train_step(
-            self, *,
-            buffer: Buffer[PPO2Info], itr: int,
-            logger=None, log_freq=1000,
-            cache=None, save_freq=None
-    ) -> None:
-        tstart = time.time()
-        frac = 1.0 - (itr - 1.0) / self.nupdates
-        if itr == 0:
-            self.tfirststart = tstart
-
-        # Calculate the learning rate
-        # in baselines these are defaulted to constant functions
-        lrnow = self.config.training.lr * frac
-        # Calculate the cliprange
-        cliprangenow = self.config.training.cliprange * frac
-
-        batch = buffer.latest_batch
+    def calculate_returns(self, batch) -> np.ndarray:
         # discount/bootstrap off value fn
         last_values = self.model.value(
             batch.sampler_state.obs,
@@ -422,14 +405,36 @@ class PPO2Trainer(PolicyTrainer, TfObject):
                 nextvalues = batch.policy_info.values[t+1]
             delta = batch.rewards[t] + self.config.training.gamma * nextvalues * nextnonterminal - batch.policy_info.values[t]
             mb_advs[t] = lastgaelam = delta + self.config.training.gamma * self.config.training.lam * nextnonterminal * lastgaelam
+
         mb_returns = mb_advs + batch.policy_info.values
 
-        obs = sf01(batch.obs)
+        return mb_returns
+
+    def train_step(
+            self, *,
+            buffer: Buffer[PPO2Info], itr: int,
+            logger=None, log_freq=1000,
+            cache=None, save_freq=None
+    ) -> None:
+        tstart = time.time()
+        frac = 1.0 - (itr - 1.0) / self.nupdates
+        if itr == 1:
+            self.tfirststart = tstart
+
+        # Calculate the learning rate
+        # in baselines these are defaulted to constant functions
+        lrnow = self.config.training.lr * frac
+        # Calculate the cliprange
+        cliprangenow = self.config.training.cliprange * frac
+
+        mb_returns = self.calculate_returns(buffer.latest_batch)
+
+        obs = sf01(buffer.latest_batch.obs)
         returns = sf01(mb_returns)
-        masks = sf01(batch.dones)
-        actions = sf01(batch.acts)
-        values = sf01(batch.policy_info.values)
-        neglogpacs = sf01(batch.policy_info.neglogpacs)
+        masks = sf01(buffer.latest_batch.dones)
+        actions = sf01(buffer.latest_batch.acts)
+        values = sf01(buffer.latest_batch.policy_info.values)
+        neglogpacs = sf01(buffer.latest_batch.policy_info.neglogpacs)
 
         mblossvals = []
         inds = np.arange(self.nbatch)
