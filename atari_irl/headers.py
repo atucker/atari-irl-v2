@@ -333,17 +333,6 @@ class PolicyTrainer:
         raise NotImplemented
 
 
-class RewardModelTrainer:
-    def __init__(self, obs_space: Tuple[int], act_space: Tuple[int]) -> None:
-        raise NotImplemented
-
-    def get_rewards(self, batch: Batch) -> np.ndarray:
-        raise NotImplemented
-
-    def train(self, buffer: Buffer) -> None:
-        raise NotImplemented
-
-
 class Stacker:
     def __init__(self, other_cls: Type) -> None:
         self.data_cls = other_cls
