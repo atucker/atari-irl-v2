@@ -1,4 +1,4 @@
-from typing import NamedTuple, Dict, Any
+from typing import NamedTuple, Dict, Any, Optional
 import gym
 import baselines
 import numpy as np
@@ -22,12 +22,35 @@ from baselines.common.vec_env import VecEnv
 
 import tensorflow as tf
 
-from .headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
+from .headers import PolicyInfo, Observations, Buffer, TimeShape
 from .utils import one_hot, Stacker, set_seed
 from .headers import Batch, EnvInfo, SamplerState
 
-from .experiments import TfObject, Configuration, FilesystemCache
+from .experiments import TfObject, Configuration, Cache, TfObjectTrainer
 from .buffers import ViewBuffer, DummyBuffer
+
+
+class Policy(TfObject):
+    InfoClass = PolicyInfo
+
+    def __init__(self, env: VecEnv, config: Configuration) -> None:
+        self.obs_space = env.observation_space
+        self.act_space = env.action_space
+        super().__init__(config)
+
+    def get_actions(self, obs_batch: Observations) -> PolicyInfo:
+        raise NotImplemented
+
+    def get_action_logprobs(self, obs_batch: Observations) -> PolicyInfo:
+        raise NotImplemented
+
+    def train_step(
+            self,
+            buffer: Buffer, itr: int,
+            logger: Any, log_freq: Optional[int],
+            cache: Cache, save_freq: Optional[int]
+    ) -> None:
+        raise NotImplemented
 
 
 class EnvSpec(NamedTuple):
@@ -41,7 +64,7 @@ class EnvSpec(NamedTuple):
 
 
 class Sampler:
-    def __init__(self, env: VecEnv, policy: PolicyTrainer) -> None:
+    def __init__(self, env: VecEnv, policy: Policy) -> None:
         self.env = env
         self.num_envs = env.num_envs
         self.policy = policy
@@ -55,10 +78,10 @@ class Sampler:
 
     def old_sample_batch(self, rollout_t: int, show=False) -> Batch:
         assert self.obs is not None, "Need to call reset"
-        assert issubclass(self.policy.info_class, PolicyInfo)
+        assert issubclass(self.policy.InfoClass, PolicyInfo)
 
         env_info_stacker = Stacker(EnvInfo)
-        policy_info_stacker = Stacker(self.policy.info_class)
+        policy_info_stacker = Stacker(self.policy.InfoClass)
 
         time_step = TimeShape(num_envs=self.num_envs)
         time_shape = TimeShape(num_envs=self.num_envs, T=rollout_t)
@@ -113,11 +136,11 @@ class Sampler:
             # TODO(Aaron): Make this a cleaner method, probably of stacker
             # where each field can define a lambda for how to process it
             # instead of assuming that we just use np.array
-            policy_info=self.policy.info_class(
+            policy_info=self.policy.InfoClass(
                 time_shape=time_shape,
                 **dict(
                     (field, np.array(getattr(policy_info_stacker, field)))
-                    for field in self.policy.info_class._fields
+                    for field in self.policy.InfoClass._fields
                     if field != 'time_shape'
                 )
             )
@@ -125,10 +148,10 @@ class Sampler:
 
     def sample_batch(self, rollout_t: int, show=False) -> Batch:
         assert self.obs is not None, "Need to call reset"
-        assert issubclass(self.policy.info_class, PolicyInfo)
+        assert issubclass(self.policy.InfoClass, PolicyInfo)
 
         env_info_stacker = Stacker(EnvInfo)
-        policy_info_stacker = Stacker(self.policy.info_class)
+        policy_info_stacker = Stacker(self.policy.InfoClass)
         
         obs = np.zeros((rollout_t, self.env.num_envs) + self.env.observation_space.shape)
         nobs = np.zeros((rollout_t, self.env.num_envs) + self.env.observation_space.shape)
@@ -183,11 +206,11 @@ class Sampler:
             # TODO(Aaron): Make this a cleaner method, probably of stacker
             # where each field can define a lambda for how to process it
             # instead of assuming that we just use np.array
-            policy_info=self.policy.info_class(
+            policy_info=self.policy.InfoClass(
                 time_shape=time_shape,
                 **dict(
                     (field, np.array(getattr(policy_info_stacker, field)))
-                    for field in self.policy.info_class._fields
+                    for field in self.policy.InfoClass._fields
                     if field != 'time_shape'
                 )
             )
@@ -252,7 +275,9 @@ class Sampler:
 
 class EnvConfiguration(Configuration):
     default_values = dict(
-        name='ERROR: This has to be defined'
+        name='ERROR: This has to be defined',
+        action_space=None,
+        observation_space=None
     )
 
 
@@ -314,20 +339,15 @@ class PPO2Info(PolicyInfo):
         return self.neglogpacs * -1
 
 
-class PPO2Trainer(PolicyTrainer, TfObject):
-    info_class = PPO2Info
+class PPO2Policy(Policy):
+    InfoClass = PPO2Info
     config_class = PPO2Config
-    class_registration_name = 'PPO2Network'
+    class_registration_name = 'PPO2Policy'
     
     def __init__(
             self,
-            env: VecEnv,
             config: PPO2Config
     ) -> None:
-        PolicyTrainer.__init__(self, env)
-
-        self.env = env
-
         training_config = config.training
         self.nbatch = training_config.nenvs * training_config.nsteps
         self.nbatch_train = self.nbatch // training_config.nminibatches
@@ -342,13 +362,13 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         set_seed(self.config.training.seed)
         self.model = baselines.ppo2.model.Model(
             policy=baselines.common.policies.build_policy(
-                self.env,
+                self.config.env,
                 self.config.network.network,
                 **self.config.network.network_kwargs
             ),
-            ob_space=self.env.observation_space,
-            ac_space=self.env.action_space,
-            nbatch_act=self.env.num_envs,
+            ob_space=self.config.env.observation_space,
+            ac_space=self.config.env.action_space,
+            nbatch_act=self.config.training.nenvs,
             nbatch_train=self.nbatch_train,
             nsteps=self.config.training.nsteps,
             ent_coef=self.config.training.ent_coef,
@@ -480,12 +500,22 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             with cache.context('training'):
                 with cache.context(str(itr)):
                     self.store_in_cache(cache)
-            
+
+
+TfObject.register_cachable_class('PPO2Policy', PPO2Policy)
+
+
+class PPOTrainer(TfObjectTrainer[PPO2Policy]):
+    def __init__(self, *, env, policy) -> None:
+        self.env = env
+        self.policy = policy
+        super().__init__(self.policy)
+
     def train(self, cache, log_freq=1, save_freq=None):
-        print(f"Training PPO2 policy with key {self.key}")
+        print(f"Training PPO2 policy with key {self.policy.key}")
         logger.configure()
 
-        sampler = Sampler(env=self.env, policy=self)
+        sampler = Sampler(env=self.env, policy=self.policy)
         buffer = DummyBuffer[PPO2Info](
             overwrite_rewards=False,
             overwrite_logprobs=False
@@ -495,12 +525,12 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         total_timesteps = 0
         i = 1
         epinfobuf = deque(maxlen=100)
-        while total_timesteps < self.config.training.total_timesteps:
-            batch = sampler.sample_batch(self.config.training.nsteps)
+        while total_timesteps < self.policy.config.training.total_timesteps:
+            batch = sampler.sample_batch(self.policy.config.training.nsteps)
             epinfobuf.extend(batch.env_info.epinfobuf)
             buffer.add_batch(batch)
 
-            self.train_step(
+            self.policy.train_step(
                 buffer=buffer,
                 itr=i,
                 logger=logger,
@@ -517,19 +547,15 @@ class PPO2Trainer(PolicyTrainer, TfObject):
                 logger.logkv('buffer size', buffer.time_shape.size)
                 logger.dumpkvs()
 
-            if i % int(self.config.training.total_timesteps / 10) == 0:
+            if i % int(self.policy.config.training.total_timesteps / 10) == 0:
                 print("Doing a cache roundtrip...")
-                with cache.context('training'):
-                    with cache.context(str(i)):
-                        self.store_in_cache(cache)
-                        self.restore_values_from_cache(cache)
-                        
+                self.store_training_checkpoint(cache, itr=i)
+                stored_i, _ = self.restore_training_checkpoint(cache)
+                assert stored_i == i
+
             i += 1
             total_episodes += len(batch.env_info.epinfobuf)
-            total_timesteps += self.config.training.nsteps * self.config.training.nenvs
-
-
-TfObject.register_cachable_class('PPO2Network', PPO2Trainer)
+            total_timesteps += self.policy.config.training.nsteps * self.policy.config.training.nenvs
 
 
 def easy_init_PPO(
@@ -539,9 +565,8 @@ def easy_init_PPO(
         seed=0,
         load_initialization=None,
         **network_kwargs
-) -> PPO2Trainer:
-    return PPO2Trainer(
-        env=env,
+) -> PPO2Policy:
+    return PPO2Policy(
         config=PPO2Config(
             training=PPO2TrainingConfiguration(
                 total_timesteps=total_timesteps,
@@ -554,7 +579,9 @@ def easy_init_PPO(
                 network_kwargs=network_kwargs
             ),
             env=EnvConfiguration(
-                name=env.unwrapped.specs[0].id
+                name=env.unwrapped.specs[0].id,
+                action_space=env.action_space,
+                observation_space=env.observation_space
             )
         )
     )
@@ -601,16 +628,15 @@ class QConfig(Configuration):
     )
 
 
-class QTrainer(PolicyTrainer, TfObject):
-    info_class = QInfo
-    class_registration_name = 'QNetwork'
+class QPolicy(Policy):
+    InfoClass = QInfo
+    class_registration_name = 'QPolicy'
 
     def __init__(
             self,
             env: VecEnv,
             config: QConfig
     ) -> None:
-        PolicyTrainer.__init__(self, env)
 
         self.train_model = None
         self.update_target = None
@@ -618,7 +644,7 @@ class QTrainer(PolicyTrainer, TfObject):
         self.act = None
 
         self.env = env
-        TfObject.__init__(self, config)
+        super().__init__(self, config)
 
         # Create the replay buffer
         self.beta_schedule = None
@@ -639,12 +665,11 @@ class QTrainer(PolicyTrainer, TfObject):
 
     def initialize_graph(self):
         set_seed(self.config.training.seed)
-        env = self.env
         q_func = deepq.build_q_func(
             self.config.network.network,
             self.config.network.network_kwargs
         )
-        observation_space = env.observation_space
+        observation_space = self.config.env.observation_space
 
         def make_obs_ph(name):
             return deepq.ObservationInput(observation_space, name=name)
@@ -652,7 +677,7 @@ class QTrainer(PolicyTrainer, TfObject):
         act, self.train_model, self.update_target, self.debug = baselines.deepq.build_train(
             make_obs_ph=make_obs_ph,
             q_func=q_func,
-            num_actions=env.action_space.n,
+            num_actions=self.config.env.action_space.n,
             optimizer=tf.train.AdamOptimizer(learning_rate=self.config.training.lr),
             gamma=self.config.training.gamma,
             grad_norm_clipping=self.config.training.grad_norm_clipping,
@@ -663,7 +688,7 @@ class QTrainer(PolicyTrainer, TfObject):
         act_params = {
             'make_obs_ph': make_obs_ph,
             'q_func': q_func,
-            'num_actions': env.action_space.n,
+            'num_actions': self.config.env.action_space.n,
         }
 
         self.act = deepq.ActWrapper(act, act_params)
@@ -733,8 +758,6 @@ class QTrainer(PolicyTrainer, TfObject):
             
         if logger and log_freq and itr % log_freq == 0:
             logger.logkv('"% time spent exploring"', int(100 * buffer.policy_info.explore_frac[-1]))
-            #if t > self.config.training.learning_starts and t % self.config.training.train_freq == 0:
-                #logger.logkv("mean reward", np.mean(rewards))
         self.t += 1
 
         if cache and save_freq and (itr % save_freq == 0):
@@ -742,7 +765,7 @@ class QTrainer(PolicyTrainer, TfObject):
                 with cache.context(str(itr)):
                     self.store_in_cache(cache)
 
-    def train(self, cache, log_freq=100):
+    def train(self, *, env, cache, log_freq=100):
         print(f"Training Q Learning policy with key {self.key}")
         logger.configure()
 
@@ -774,7 +797,7 @@ class QTrainer(PolicyTrainer, TfObject):
                 logger.dumpkvs()
 
 
-TfObject.register_cachable_class('QNetwork', QTrainer)
+TfObject.register_cachable_class('QPolicy', QPolicy)
 
 
 def easy_init_Q(
@@ -784,7 +807,7 @@ def easy_init_Q(
     learning_starts=1000,
     seed=0,
     **network_kwargs
-) -> QTrainer:
+) -> QPolicy:
     config = QConfig(
         training=QTrainingConfiguration(
             total_timesteps=total_timesteps,
@@ -798,7 +821,9 @@ def easy_init_Q(
             network_kwargs=network_kwargs
         ),
         env=EnvConfiguration(
-            name=env.unwrapped.specs[0].id
+            name=env.unwrapped.specs[0].id,
+            observation_space=env.observation_space,
+            action_space=env.action_space
         )
     )
-    return QTrainer(env=env, config=config)
+    return QPolicy(config=config)

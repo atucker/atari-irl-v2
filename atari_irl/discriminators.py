@@ -3,8 +3,9 @@ import numpy as np
 from baselines.a2c.utils import conv, fc, conv_to_fc
 import baselines.common.tf_util as U
 from .experiments import TfObject, Configuration
-from .headers import Stacker, Buffer, PolicyTrainer, EnvInfo, Batch
+from .headers import Stacker, Buffer, EnvInfo, Batch
 from .utils import one_hot, set_seed
+from .policies import policy
 from typing import NamedTuple, Optional
 from baselines import logger
 import functools
@@ -197,7 +198,7 @@ class AtariAIRL(TfObject):
         return score, score
         #return np.clip((score - self.score_mean) / self.score_std, -3, 3), score
 
-    def train_step(self, buffer: Buffer, policy: PolicyTrainer, batch_size=256, lr=1e-3, verbose=False, itr=0, **kwargs):
+    def train_step(self, buffer: Buffer, policy: Policy, batch_size=256, lr=1e-3, verbose=False, itr=0, **kwargs):
         if batch_size > buffer.time_shape.size:
             return
         

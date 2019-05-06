@@ -8,7 +8,7 @@ from baselines import logger
 from baselines.ppo2.ppo2 import safemean
 
 from . import environments, policies, buffers, discriminators, experts, experiments, utils
-from .headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer, SamplerState
+from .headers import TimeShape, EnvInfo, PolicyInfo, Observations, Policy, Batch, Buffer, SamplerState
 
 
 import pickle
@@ -20,7 +20,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 
 
-class RandomPolicy(PolicyTrainer):
+class RandomPolicy(Policy):
     def get_actions(self, obs: Observations) -> PolicyInfo:
         assert obs.time_shape.T is None
         assert obs.time_shape.num_envs is not None
@@ -78,8 +78,8 @@ class IRL:
             'PPO2': policies.easy_init_PPO
         }[policy_type]
         policy_class = {
-            'Q': policies.QTrainer,
-            'PPO2': policies.PPO2Trainer
+            'Q': policies.QPolicy,
+            'PPO2': policies.PPO2Policy
         }[policy_type]
 
         self.batch_t = 128 if policy_type == 'PPO2' else 1
@@ -248,7 +248,7 @@ def main(
                                 network='cnn',
                                 total_timesteps=int(expert_total_timesteps)
                             )
-                        expert.cached_train(cache)
+                        expert.cached_train()
 
                 with cache.context('trajectories'):
                     with cache.context(cache.hash_key(expert.key)):

@@ -319,20 +319,6 @@ class Batch(NamedTuple):
         return self.policy_info.lprobs
 
 
-class PolicyTrainer:
-    info_class = PolicyInfo
-
-    def __init__(self, env: VecEnv) -> None:
-        self.obs_space = env.observation_space
-        self.act_space = env.action_space
-
-    def get_actions(self, obs_batch: Observations) -> PolicyInfo:
-        raise NotImplemented
-
-    def train_step(self, buffer: Buffer, itr: int, log_freq: int, logger: Any) -> None:
-        raise NotImplemented
-
-
 class Stacker:
     def __init__(self, other_cls: Type) -> None:
         self.data_cls = other_cls
