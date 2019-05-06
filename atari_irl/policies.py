@@ -292,7 +292,7 @@ class PPO2Config(Configuration):
         training=PPO2TrainingConfiguration(),
         network=NetworkKwargsConfiguration(),
         env=EnvConfiguration(),
-        version=1
+        version=1.1
     )
 
 
