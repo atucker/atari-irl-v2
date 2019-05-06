@@ -23,7 +23,6 @@ from baselines.common.vec_env import VecEnv
 import tensorflow as tf
 
 from .headers import PolicyTrainer, PolicyInfo, Observations, Buffer, TimeShape
-from .discriminators import AtariAIRL
 from .utils import one_hot, Stacker, set_seed
 from .headers import Batch, EnvInfo, SamplerState
 
