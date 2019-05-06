@@ -246,9 +246,9 @@ class TfObjectTrainer(Generic[T]):
         else:
             self.train(cache)
             self.trainee.store_in_cache(cache)
-        return self
+        return self.trainee
 
-    def train(self, cache, training_context):
+    def train(self, cache):
         raise NotImplemented()
 
     def store_training_checkpoint(self, cache: Cache, itr: int, extra_data={}):
@@ -265,11 +265,12 @@ class TfObjectTrainer(Generic[T]):
                 available_itrs = cache.context_item_keys()
                 if not available_itrs:
                     assert False, "restore initialized from empty context, cannot resume training"
-                itr = int(max(available_itrs))
+                itr = max([int(itr) for itr in available_itrs])
                 with cache.context(str(itr)):
                     self.trainee.restore_values_from_cache(cache)
                     extra_data = {}
                     for key in cache.context_item_keys():
-                        extra_data[key] = cache[key]
+                        if cache.hash_key(self.trainee.key) not in key:
+                            extra_data[key] = cache[key]
         return itr, extra_data
 

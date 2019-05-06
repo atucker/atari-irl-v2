@@ -30,13 +30,31 @@ from .experiments import TfObject, Configuration, Cache, TfObjectTrainer
 from .buffers import ViewBuffer, DummyBuffer
 
 
+class EnvConfiguration(Configuration):
+    default_values = dict(
+        name='ERROR: This has to be defined',
+        action_space=None,
+        observation_space=None
+    )
+
+    @classmethod
+    def from_env(self, env) -> 'EnvConfiguration':
+        return EnvConfiguration(
+            name=env.unwrapped.specs[0].id,
+            observation_space=env.observation_space,
+            action_space=env.action_space
+        )
+
+    def is_compatible(self, env: VecEnv) -> bool:
+        return all([
+            self.name == env.unwrapped.specs[0].id,
+            self.observation_space == env.observation_space,
+            self.action_space == env.action_space
+        ])
+
+
 class Policy(TfObject):
     InfoClass = PolicyInfo
-
-    def __init__(self, env: VecEnv, config: Configuration) -> None:
-        self.obs_space = env.observation_space
-        self.act_space = env.action_space
-        super().__init__(config)
 
     def get_actions(self, obs_batch: Observations) -> PolicyInfo:
         raise NotImplemented
@@ -52,15 +70,63 @@ class Policy(TfObject):
     ) -> None:
         raise NotImplemented
 
+    def make_training_buffer(self) -> Buffer[PolicyInfo]:
+        raise NotImplemented
 
-class EnvSpec(NamedTuple):
-    """
-    The baselines code wants a full environment, but only uses the
-    action and observation space definitions. Let's hope that that stays true,
-    because otherwise it makes the interface less clean...
-    """
-    observation_space: gym.Space
-    action_space: gym.Space
+
+class PolicyTrainer(TfObjectTrainer[Policy]):
+    def __init__(self, *, policy, env):
+        self.env = env
+        self.policy = policy
+        assert self.policy.config.env.is_compatible(env)
+        super().__init__(self.policy)
+
+    def train(self, cache):
+        print(f"Training {self.policy.__class__} policy with key {self.policy.key}")
+        logger.configure()
+
+        sampler = Sampler(env=self.env, policy=self.policy)
+        buffer = self.policy.make_training_buffer()
+
+        log_freq = 1
+
+        total_episodes = 0
+        total_timesteps = 0
+        i = 1
+        epinfobuf = deque(maxlen=100)
+        nbatch = self.policy.config.training.nsteps * self.policy.config.training.nenvs
+        while total_timesteps < self.policy.config.training.total_timesteps:
+            batch = sampler.sample_batch(self.policy.config.training.nsteps)
+            epinfobuf.extend(batch.env_info.epinfobuf)
+            buffer.add_batch(batch)
+
+            self.policy.train_step(
+                buffer=buffer,
+                itr=i,
+                logger=logger,
+                log_freq=log_freq,
+                cache=cache,
+                save_freq=None
+            )
+
+            if i % log_freq == 0:
+                logger.logkv('itr', i)
+                logger.logkv('cumulative episodes', total_episodes)
+                logger.logkv('timesteps covered', total_timesteps)
+                logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
+                logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
+                logger.logkv('buffer size', buffer.time_shape.size)
+                logger.dumpkvs()
+
+            if i % int(self.policy.config.training.total_timesteps / (10 * nbatch)) == 0:
+                print("Doing a cache roundtrip...")
+                self.store_training_checkpoint(cache, itr=i)
+                stored_i, _ = self.restore_training_checkpoint(cache)
+                assert stored_i == i
+
+            i += 1
+            total_episodes += len(batch.env_info.epinfobuf)
+            total_timesteps += nbatch
 
 
 class Sampler:
@@ -273,14 +339,6 @@ class Sampler:
         return cache[key]
 
 
-class EnvConfiguration(Configuration):
-    default_values = dict(
-        name='ERROR: This has to be defined',
-        action_space=None,
-        observation_space=None
-    )
-
-
 class NetworkKwargsConfiguration(Configuration):
     default_values = dict(
         network='conv_only',
@@ -355,7 +413,7 @@ class PPO2Policy(Policy):
         self.tfirststart = None
         self.model = None
 
-        TfObject.__init__(self, config)
+        Policy.__init__(self, config)
 
     def initialize_graph(self):
         print('initializing!')
@@ -501,61 +559,14 @@ class PPO2Policy(Policy):
                 with cache.context(str(itr)):
                     self.store_in_cache(cache)
 
-
-TfObject.register_cachable_class('PPO2Policy', PPO2Policy)
-
-
-class PPOTrainer(TfObjectTrainer[PPO2Policy]):
-    def __init__(self, *, env, policy) -> None:
-        self.env = env
-        self.policy = policy
-        super().__init__(self.policy)
-
-    def train(self, cache, log_freq=1, save_freq=None):
-        print(f"Training PPO2 policy with key {self.policy.key}")
-        logger.configure()
-
-        sampler = Sampler(env=self.env, policy=self.policy)
-        buffer = DummyBuffer[PPO2Info](
+    def make_training_buffer(self) -> DummyBuffer[PPO2Info]:
+        return DummyBuffer[PPO2Info](
             overwrite_rewards=False,
             overwrite_logprobs=False
         )
 
-        total_episodes = 0
-        total_timesteps = 0
-        i = 1
-        epinfobuf = deque(maxlen=100)
-        while total_timesteps < self.policy.config.training.total_timesteps:
-            batch = sampler.sample_batch(self.policy.config.training.nsteps)
-            epinfobuf.extend(batch.env_info.epinfobuf)
-            buffer.add_batch(batch)
 
-            self.policy.train_step(
-                buffer=buffer,
-                itr=i,
-                logger=logger,
-                log_freq=log_freq,
-                cache=cache,
-                save_freq=None
-            )
-
-            if i % log_freq == 0:
-                logger.logkv('itr', i)
-                logger.logkv('cumulative episodes', total_episodes)
-                logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
-                logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
-                logger.logkv('buffer size', buffer.time_shape.size)
-                logger.dumpkvs()
-
-            if i % int(self.policy.config.training.total_timesteps / 10) == 0:
-                print("Doing a cache roundtrip...")
-                self.store_training_checkpoint(cache, itr=i)
-                stored_i, _ = self.restore_training_checkpoint(cache)
-                assert stored_i == i
-
-            i += 1
-            total_episodes += len(batch.env_info.epinfobuf)
-            total_timesteps += self.policy.config.training.nsteps * self.policy.config.training.nenvs
+TfObject.register_cachable_class('PPO2Policy', PPO2Policy)
 
 
 def easy_init_PPO(
@@ -578,11 +589,7 @@ def easy_init_PPO(
                 load_initialization=load_initialization,
                 network_kwargs=network_kwargs
             ),
-            env=EnvConfiguration(
-                name=env.unwrapped.specs[0].id,
-                action_space=env.action_space,
-                observation_space=env.observation_space
-            )
+            env=EnvConfiguration.from_env(env)
         )
     )
 
@@ -616,7 +623,9 @@ class QTrainingConfiguration(Configuration):
         grad_norm_clipping=10,
         exploration_initial_p=1.0,
         seed=0,
-        nenv=8
+        nenvs=8,
+        nsteps=1,
+        buffer_size=1000000
     )
 
 
@@ -634,7 +643,6 @@ class QPolicy(Policy):
 
     def __init__(
             self,
-            env: VecEnv,
             config: QConfig
     ) -> None:
 
@@ -643,8 +651,7 @@ class QPolicy(Policy):
         self.debug = None
         self.act = None
 
-        self.env = env
-        super().__init__(self, config)
+        Policy.__init__(self, config)
 
         # Create the replay buffer
         self.beta_schedule = None
@@ -659,9 +666,8 @@ class QPolicy(Policy):
         U.initialize()
         self.update_target()
 
-        self.action_space = env.action_space
-        self.t = 0
-        self.env = env
+        self.action_space = self.config.env.action_space
+        self.t = 1
 
     def initialize_graph(self):
         set_seed(self.config.training.seed)
@@ -696,7 +702,7 @@ class QPolicy(Policy):
     def get_actions(self, obs_batch: Observations) -> QInfo:
         # Take action and update exploration to the newest value
         kwargs = {}
-        update_eps = self.exploration.value(self.t)
+        update_eps = self.exploration.value(self.t-1)
         update_param_noise_threshold = 0.
 
         self.last_explore_frac = update_eps
@@ -713,7 +719,7 @@ class QPolicy(Policy):
     
     def get_a_logprobs(self, obs: np.ndarray, acts: np.ndarray) -> np.ndarray:
         if isinstance(acts, list) or len(acts.shape) == 1:
-            acts = one_hot(acts, self.act_space.n)
+            acts = one_hot(acts, self.action_space.n)
         qs = self.debug['q_values'](obs)
         random_p = 1.0 / self.action_space.n
         logp_argmax = np.log((1.0 - self.last_explore_frac) * 1.0 + self.last_explore_frac * random_p)
@@ -738,7 +744,7 @@ class QPolicy(Policy):
         t = itr
 
         if t > self.config.training.learning_starts and t % self.config.training.train_freq == 0:
-            for _ in range(self.env.num_envs):
+            for _ in range(self.config.training.nenvs):
                 # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
                 obses_t, actions, rewards, obses_tp1, dones = buffer.sample_batch(
                     'obs', 'acts', 'rewards', 'next_obs', 'next_dones',
@@ -765,36 +771,15 @@ class QPolicy(Policy):
                 with cache.context(str(itr)):
                     self.store_in_cache(cache)
 
-    def train(self, *, env, cache, log_freq=100):
-        print(f"Training Q Learning policy with key {self.key}")
-        logger.configure()
-
-        sampler = Sampler(env=self.env, policy=self)
-        buffer = ViewBuffer[QInfo](None, QInfo)
-
-        total_episodes = 0
-        epinfobuf = deque(maxlen=100)
-        for i in range(int(self.config.training.total_timesteps)):
-            batch = sampler.sample_batch(1)
-            total_episodes += len(batch.env_info.epinfobuf)
-            epinfobuf.extend(batch.env_info.epinfobuf)
-            buffer.add_batch(batch)
-
-            if i % self.config.training.train_freq == 0:
-                self.train_step(
-                    buffer=buffer,
-                    itr=i,
-                    log_freq=log_freq
-                )
-
-            if i % log_freq == 0:
-                logger.logkv('itr', i)
-                logger.logkv('cumulative episodes', total_episodes)
-                logger.logkv('timesteps covered', i * self.env.num_envs)
-                logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
-                logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
-                logger.logkv('buffer size', buffer.time_shape.size)
-                logger.dumpkvs()
+    def make_training_buffer(self) -> ViewBuffer[QInfo]:
+        return ViewBuffer[QInfo](
+            overwrite_rewards=False,
+            overwrite_logprobs=False,
+            discriminator=None,
+            policy=self,
+            policy_info_class=QInfo,
+            maxlen=self.config.training.buffer_size // self.config.training.nenvs
+        )
 
 
 TfObject.register_cachable_class('QPolicy', QPolicy)
@@ -808,22 +793,19 @@ def easy_init_Q(
     seed=0,
     **network_kwargs
 ) -> QPolicy:
-    config = QConfig(
-        training=QTrainingConfiguration(
-            total_timesteps=total_timesteps,
-            learning_starts=learning_starts,
-            target_network_update_freq=int(10000/env.num_envs),
-            seed=seed,
-            nenv=env.num_envs
-        ),
-        network=NetworkKwargsConfiguration(
-            network=network,
-            network_kwargs=network_kwargs
-        ),
-        env=EnvConfiguration(
-            name=env.unwrapped.specs[0].id,
-            observation_space=env.observation_space,
-            action_space=env.action_space
+    return QPolicy(
+        config=QConfig(
+            training=QTrainingConfiguration(
+                total_timesteps=total_timesteps,
+                learning_starts=learning_starts,
+                target_network_update_freq=int(10000/env.num_envs),
+                seed=seed,
+                nenvs=env.num_envs
+            ),
+            network=NetworkKwargsConfiguration(
+                network=network,
+                network_kwargs=network_kwargs
+            ),
+            env=EnvConfiguration.from_env(env)
         )
     )
-    return QPolicy(config=config)

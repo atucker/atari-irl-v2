@@ -1,17 +1,14 @@
 from typing import NamedTuple, Any, Type, TypeVar, Generic, TypeVar
 from collections import OrderedDict, deque
 import numpy as np
-import gym
 
-from baselines.common.vec_env import VecEnv
 from baselines import logger
 from baselines.ppo2.ppo2 import safemean
 
 from . import environments, policies, buffers, discriminators, experts, experiments, utils
-from .headers import TimeShape, EnvInfo, PolicyInfo, Observations, Policy, Batch, Buffer, SamplerState
+from .headers import EnvInfo, PolicyInfo, Observations, Batch, Buffer
 
 
-import pickle
 import os
 import psutil
 import gc
@@ -20,7 +17,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 
 
-class RandomPolicy(Policy):
+class RandomPolicy(policies.Policy):
     def get_actions(self, obs: Observations) -> PolicyInfo:
         assert obs.time_shape.T is None
         assert obs.time_shape.num_envs is not None
@@ -93,10 +90,10 @@ class IRL:
             **policy_args
         )
 
-        self.buffer = buffers.ViewBuffer[policy_class.info_class](
+        self.buffer = buffers.ViewBuffer[policy_class.InfoClass](
             discriminator=self.discriminator,
             policy=self.policy,
-            policy_info_class=policy_class.info_class,
+            policy_info_class=policy_class.InfoClass,
             maxlen=int(buffer_size / env.num_envs) if buffer_size else self.fixed_buffer_ratio
         )
         
@@ -154,22 +151,23 @@ class IRL:
         log_freq = 1
         discriminator_train_freq = self.fixed_buffer_ratio
         logger.configure()
+        log_memory = False
         
-        for i in range(int(self.T)):
-            with utils.light_log_mem("sample step"):
+        for i in range(1, int(self.T) + 1 ):
+            with utils.light_log_mem("sample step", log_memory):
                 samples = self.obtain_samples()
                 self.buffer.add_batch(samples)
 
-            with utils.light_log_mem("policy train step"):
+            with utils.light_log_mem("policy train step", log_memory):
                 self.policy.train_step(
                     buffer=self.buffer,
                     itr=i,
-                    log_freq=log_freq,
-                    logger=logger
+                    logger=logger,
+                    log_freq=log_freq
                 )
 
             if i % discriminator_train_freq == 0 and self.train_discriminator:
-                with utils.light_log_mem("discriminator train step"):
+                with utils.light_log_mem("discriminator train step", log_memory):
                     self.discriminator.train_step(
                         buffer=self.buffer,
                         policy=self.policy,
@@ -182,7 +180,7 @@ class IRL:
                 not self.train_discriminator and i % log_freq == 0
             ):
                 self.log_performance(i)
-                with utils.light_log_mem("garbage collection"):
+                with utils.light_log_mem("garbage collection", log_memory):
                     gc.collect()
 
 
@@ -231,7 +229,6 @@ def main(
                 tf.random.set_random_seed(seed)
                 if use_expert_file:
                     expert = experiments.TfObject.create_from_file(
-                        env=env,
                         fname=use_expert_file
                     )
                 else:
@@ -248,7 +245,11 @@ def main(
                                 network='cnn',
                                 total_timesteps=int(expert_total_timesteps)
                             )
-                        expert.cached_train()
+                        # train it if we have to
+                        expert = policies.PolicyTrainer(
+                            policy=expert,
+                            env=env
+                        ).cached_train(cache)
 
                 with cache.context('trajectories'):
                     with cache.context(cache.hash_key(expert.key)):

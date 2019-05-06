@@ -5,7 +5,7 @@ import baselines.common.tf_util as U
 from .experiments import TfObject, Configuration
 from .headers import Stacker, Buffer, EnvInfo, Batch
 from .utils import one_hot, set_seed
-from .policies import policy
+from .policies import Policy
 from typing import NamedTuple, Optional
 from baselines import logger
 import functools
