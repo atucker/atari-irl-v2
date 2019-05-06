@@ -495,10 +495,10 @@ class PPO2Trainer(PolicyTrainer, TfObject):
         total_episodes = 0
         total_timesteps = 0
         i = 1
-        eval_epinfobuf = []
+        epinfobuf = deque(maxlen=100)
         while total_timesteps < self.config.training.total_timesteps:
             batch = sampler.sample_batch(self.config.training.nsteps)
-            eval_epinfobuf.extend(batch.env_info.epinfobuf)
+            epinfobuf.extend(batch.env_info.epinfobuf)
             buffer.add_batch(batch)
 
             self.train_step(
@@ -513,8 +513,8 @@ class PPO2Trainer(PolicyTrainer, TfObject):
             if i % log_freq == 0:
                 logger.logkv('itr', i)
                 logger.logkv('cumulative episodes', total_episodes)
-                logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in eval_epinfobuf]))
-                logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in eval_epinfobuf]))
+                logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
+                logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
                 logger.logkv('buffer size', buffer.time_shape.size)
                 logger.dumpkvs()
 
@@ -751,11 +751,11 @@ class QTrainer(PolicyTrainer, TfObject):
         buffer = ViewBuffer[QInfo](None, QInfo)
 
         total_episodes = 0
-        eval_epinfobuf = []
+        epinfobuf = deque(maxlen=100)
         for i in range(int(self.config.training.total_timesteps)):
             batch = sampler.sample_batch(1)
             total_episodes += len(batch.env_info.epinfobuf)
-            eval_epinfobuf.extend(batch.env_info.epinfobuf)
+            epinfobuf.extend(batch.env_info.epinfobuf)
             buffer.add_batch(batch)
 
             if i % self.config.training.train_freq == 0:
@@ -769,8 +769,8 @@ class QTrainer(PolicyTrainer, TfObject):
                 logger.logkv('itr', i)
                 logger.logkv('cumulative episodes', total_episodes)
                 logger.logkv('timesteps covered', i * self.env.num_envs)
-                logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in eval_epinfobuf]))
-                logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in eval_epinfobuf]))
+                logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
+                logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
                 logger.logkv('buffer size', buffer.time_shape.size)
                 logger.dumpkvs()
 
