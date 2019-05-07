@@ -59,7 +59,7 @@ class Policy(TfObject):
     def get_actions(self, obs_batch: Observations) -> PolicyInfo:
         raise NotImplemented
 
-    def get_action_logprobs(self, obs_batch: Observations) -> PolicyInfo:
+    def get_a_logprobs(self, obs_batch: Observations) -> np.ndarray:
         raise NotImplemented
 
     def train_step(
