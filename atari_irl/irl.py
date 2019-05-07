@@ -49,6 +49,7 @@ class IRL:
         self.env = env
 
         self.mask_rewards = True
+        self.train_policy = True
         self.train_discriminator = True
         build_discriminator = True
 
@@ -56,6 +57,8 @@ class IRL:
             self.mask_rewards = False
             self.train_discriminator = False
             build_discriminator = False
+        elif ablation == 'train_discriminator':
+            self.train_policy = False
 
         self.discriminator = None if not build_discriminator else discriminators.AtariAIRL(
             env=self.env,
@@ -147,42 +150,57 @@ class IRL:
         logger.logkv('memory used (MB)', psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024))
         logger.dumpkvs()
 
-    def train(self):
-        log_freq = 1
-        discriminator_train_freq = self.fixed_buffer_ratio
-        logger.configure()
-        log_memory = False
-        
-        for i in range(1, int(self.T) + 1 ):
-            with utils.light_log_mem("sample step", log_memory):
-                samples = self.obtain_samples()
-                self.buffer.add_batch(samples)
+    def train_step(
+            self,
+            i,
+            logger=None,
+            log_memory=False,
+            train_discriminator_now=False,
+            log_now=False
+    ):
+        with utils.light_log_mem("sample step", log_memory):
+            samples = self.obtain_samples()
+            self.buffer.add_batch(samples)
 
+        if self.train_policy:
             with utils.light_log_mem("policy train step", log_memory):
                 self.policy.train_step(
                     buffer=self.buffer,
                     itr=i,
-                    logger=logger,
-                    log_freq=log_freq
+                    logger=logger if log_now else None,
+                    log_freq=1
                 )
 
-            if i % discriminator_train_freq == 0 and self.train_discriminator:
-                with utils.light_log_mem("discriminator train step", log_memory):
-                    self.discriminator.train_step(
-                        buffer=self.buffer,
-                        policy=self.policy,
-                        itr=i,
-                        logger=logger
-                    )
+        if self.train_discriminator and train_discriminator_now:
+            with utils.light_log_mem("discriminator train step", log_memory):
+                self.discriminator.train_step(
+                    buffer=self.buffer,
+                    policy=self.policy,
+                    itr=i,
+                    logger=logger
+                )
 
-            if (
-                self.train_discriminator and i % discriminator_train_freq == 0 or
-                not self.train_discriminator and i % log_freq == 0
-            ):
-                self.log_performance(i)
-                with utils.light_log_mem("garbage collection", log_memory):
-                    gc.collect()
+        if (
+                self.train_discriminator and train_discriminator_now or
+                not self.train_discriminator and log_now
+        ):
+            self.log_performance(i)
+            with utils.light_log_mem("garbage collection", log_memory):
+                gc.collect()
 
+    def train(self):
+        log_freq = 1
+        discriminator_train_freq = self.fixed_buffer_ratio
+        logger.configure()
+        
+        for i in range(1, int(self.T) + 1):
+            self.train_step(
+                i,
+                logger=logger,
+                log_memory=False,
+                train_discriminator_now=i % discriminator_train_freq == 0,
+                log_now=i % log_freq == 0
+            )
 
 def main(
         *,
