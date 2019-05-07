@@ -3,8 +3,9 @@ import numpy as np
 from baselines.a2c.utils import conv, fc, conv_to_fc
 import baselines.common.tf_util as U
 from .experiments import TfObject, Configuration
-from .headers import Stacker, Buffer, PolicyTrainer, EnvInfo, Batch
+from .headers import Stacker, Buffer, EnvInfo, Batch
 from .utils import one_hot, set_seed
+from .policies import Policy
 from typing import NamedTuple, Optional
 from baselines import logger
 import functools
@@ -127,7 +128,7 @@ class AtariAIRL(TfObject):
         self.score_mean = 0
         self.score_std = 1
 
-        TfObject.__init__(self, config)
+        TfObject.__init__(self, config, scope_name='discriminator')
 
     def initialize_graph(self):
         set_seed(self.config.seed)
@@ -190,14 +191,14 @@ class AtariAIRL(TfObject):
             tf.get_default_session().run(tf.local_variables_initializer())
 
     def _process_discrim_output(self, score):
-        score = np.clip(score, 1e-7, 1 - 1e-7)
+        #score = np.clip(score, 1e-7, 1 - 1e-7)
 
-        score = np.log(score) - np.log(1 - score)
+        #score = np.log(score) - np.log(1 - score)
         score = score[:, 0]
         return score, score
         #return np.clip((score - self.score_mean) / self.score_std, -3, 3), score
 
-    def train_step(self, buffer: Buffer, policy: PolicyTrainer, batch_size=256, lr=1e-3, verbose=False, itr=0, **kwargs):
+    def train_step(self, buffer: Buffer, policy: Policy, batch_size=256, lr=1e-3, verbose=False, itr=0, **kwargs):
         if batch_size > buffer.time_shape.size:
             return
         

@@ -34,12 +34,13 @@ def inv_sf01(arr, s):
 
 
 @contextmanager
-def light_log_mem(name):
+def light_log_mem(name, log=True):
     process = psutil.Process(os.getpid())
     before_mem = process.memory_info().rss / (1024 * 1024)
     yield
     after_mem = process.memory_info().rss / (1024 * 1024)
-    print(f"{int(before_mem)}MB used before {name}, increased by {int(after_mem - before_mem)}MB")
+    if log:
+        print(f"{int(before_mem)}MB used before {name}, increased by {int(after_mem - before_mem)}MB")
 
 
 def set_seed(seed):

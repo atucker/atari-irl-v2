@@ -1,5 +1,5 @@
 import inspect
-from typing import Dict, Any, Type, List, NamedTuple, Optional, Set, Tuple, Union
+from typing import Dict, Any, Type, List, NamedTuple, Optional, Set, Tuple, Union, Generic, TypeVar
 import argparse
 import tensorflow as tf
 import numpy as np
@@ -163,18 +163,26 @@ class Context(NamedTuple):
 class TfObject:
     _cachable_classes = {}
     class_registration_name = None
-    version = 0.1
+    version = 1.0
 
     def __init__(self, config, scope_name='', initialize=True):
         self.config = config
+
         with tf.variable_scope(scope_name) as scope:
             self.initialize_graph()
-            self.scope = scope
+            self._scope = scope
+            self.scope_name = f"{tf.get_variable_scope().name}/{scope_name}"
+
+    def initialize_graph(self):
+        pass
 
     # Methods to deal with saving/restoring parameters at all
     @property
     def tensors(self) -> List[tf.Tensor]:
-        return self.scope.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+        return tf.get_collection(
+            tf.GraphKeys.GLOBAL_VARIABLES,
+            self.scope_name
+        )
 
     @property
     def values(self) -> List[np.ndarray]:
@@ -211,54 +219,63 @@ class TfObject:
         assert class_name not in cls._cachable_classes
         cls._cachable_classes[class_name] = obj_class
 
-
     @classmethod
-    def create_from_file(cls, env: Any, fname: str) -> 'TfObject':
-        #TODO(Aaron): restore the original version, then move this to PolicyTrainer
-        (class_name, config_from_cache, values) = joblib.load(fname)
+    def _create_from_tuple(cls, tuple):
+        (class_name, config_from_cache, values) = tuple
         assert class_name in cls._cachable_classes
-        initialized_object = cls._cachable_classes[class_name](env, config_from_cache)
+        initialized_object = cls._cachable_classes[class_name](config_from_cache)
         initialized_object.restore(values)
         return initialized_object
+
+    @classmethod
+    def create_from_file(cls, fname: str) -> 'TfObject':
+        return cls._create_from_tuple(joblib.load(fname))
 
     @classmethod
     def create_from_cache(cls, cache: Cache, key: str) -> 'TfObject':
         return cls._create_from_tuple(cache[key])
 
+
+T = TypeVar('T')
+
+
+class TfObjectTrainer(Generic[T]):
+    def __init__(self, trainee: T) -> None:
+        assert isinstance(trainee, TfObject)
+        self.trainee = trainee
+
     # Method for automatically training a model or retrieving it from the cache
-    def cached_train(self, cache: Cache) -> 'TfObject':
-        if self.key in cache:
-            self.restore_values_from_cache(cache)
+    def cached_train(self, cache: Cache) -> T:
+        if self.trainee.key in cache:
+            self.trainee.restore_values_from_cache(cache)
         else:
             self.train(cache)
-            self.store_in_cache(cache)
-        return self
-
-    def initialize_graph(self):
-        pass
+            self.trainee.store_in_cache(cache)
+        return self.trainee
 
     def train(self, cache):
         raise NotImplemented()
 
     def store_training_checkpoint(self, cache: Cache, itr: int, extra_data={}):
         with cache.context('training'):
-            with cache.context(cache.hash_key(self.key)):
+            with cache.context(cache.hash_key(self.trainee.key)):
                 with cache.context(str(itr)):
-                    self.store_in_cache(cache)
+                    self.trainee.store_in_cache(cache)
                     for key, value in extra_data.items():
                         cache[key] = value
 
-    def restore_training_checkpoint(self, cache: Cache):
+    def restore_training_checkpoint(self, cache: Cache, itr=None):
         with cache.context('training'):
-            with cache.context(cache.hash_key(self.key)):
+            with cache.context(cache.hash_key(self.trainee.key)):
                 available_itrs = cache.context_item_keys()
                 if not available_itrs:
                     assert False, "restore initialized from empty context, cannot resume training"
-                itr = int(max(available_itrs))
+                itr = itr or max([int(itr) for itr in available_itrs])
                 with cache.context(str(itr)):
-                    self.restore_values_from_cache(cache)
+                    self.trainee.restore_values_from_cache(cache)
                     extra_data = {}
                     for key in cache.context_item_keys():
-                        extra_data[key] = cache[key]
+                        if cache.hash_key(self.trainee.key) not in key:
+                            extra_data[key] = cache[key]
         return itr, extra_data
 

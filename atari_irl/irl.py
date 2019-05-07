@@ -1,17 +1,14 @@
 from typing import NamedTuple, Any, Type, TypeVar, Generic, TypeVar
 from collections import OrderedDict, deque
 import numpy as np
-import gym
 
-from baselines.common.vec_env import VecEnv
 from baselines import logger
 from baselines.ppo2.ppo2 import safemean
 
 from . import environments, policies, buffers, discriminators, experts, experiments, utils
-from .headers import TimeShape, EnvInfo, PolicyInfo, Observations, PolicyTrainer, Batch, Buffer, SamplerState
+from .headers import EnvInfo, PolicyInfo, Observations, Batch, Buffer
 
 
-import pickle
 import os
 import psutil
 import gc
@@ -20,7 +17,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 
 
-class RandomPolicy(PolicyTrainer):
+class RandomPolicy(policies.Policy):
     def get_actions(self, obs: Observations) -> PolicyInfo:
         assert obs.time_shape.T is None
         assert obs.time_shape.num_envs is not None
@@ -52,6 +49,7 @@ class IRL:
         self.env = env
 
         self.mask_rewards = True
+        self.train_policy = True
         self.train_discriminator = True
         build_discriminator = True
 
@@ -59,6 +57,8 @@ class IRL:
             self.mask_rewards = False
             self.train_discriminator = False
             build_discriminator = False
+        elif ablation == 'train_discriminator':
+            self.train_policy = False
 
         self.discriminator = None if not build_discriminator else discriminators.AtariAIRL(
             env=self.env,
@@ -78,8 +78,8 @@ class IRL:
             'PPO2': policies.easy_init_PPO
         }[policy_type]
         policy_class = {
-            'Q': policies.QTrainer,
-            'PPO2': policies.PPO2Trainer
+            'Q': policies.QPolicy,
+            'PPO2': policies.PPO2Policy
         }[policy_type]
 
         self.batch_t = 128 if policy_type == 'PPO2' else 1
@@ -93,10 +93,10 @@ class IRL:
             **policy_args
         )
 
-        self.buffer = buffers.ViewBuffer[policy_class.info_class](
+        self.buffer = buffers.ViewBuffer[policy_class.InfoClass](
             discriminator=self.discriminator,
             policy=self.policy,
-            policy_info_class=policy_class.info_class,
+            policy_info_class=policy_class.InfoClass,
             maxlen=int(buffer_size / env.num_envs) if buffer_size else self.fixed_buffer_ratio
         )
         
@@ -150,41 +150,57 @@ class IRL:
         logger.logkv('memory used (MB)', psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024))
         logger.dumpkvs()
 
+    def train_step(
+            self,
+            i,
+            logger=None,
+            log_memory=False,
+            train_discriminator_now=False,
+            log_now=False
+    ):
+        with utils.light_log_mem("sample step", log_memory):
+            samples = self.obtain_samples()
+            self.buffer.add_batch(samples)
+
+        if self.train_policy:
+            with utils.light_log_mem("policy train step", log_memory):
+                self.policy.train_step(
+                    buffer=self.buffer,
+                    itr=i,
+                    logger=logger if log_now else None,
+                    log_freq=1
+                )
+
+        if self.train_discriminator and train_discriminator_now:
+            with utils.light_log_mem("discriminator train step", log_memory):
+                self.discriminator.train_step(
+                    buffer=self.buffer,
+                    policy=self.policy,
+                    itr=i,
+                    logger=logger
+                )
+
+        if (
+                self.train_discriminator and train_discriminator_now or
+                not self.train_discriminator and log_now
+        ):
+            self.log_performance(i)
+            with utils.light_log_mem("garbage collection", log_memory):
+                gc.collect()
+
     def train(self):
         log_freq = 1
         discriminator_train_freq = self.fixed_buffer_ratio
         logger.configure()
         
-        for i in range(int(self.T)):
-            with utils.light_log_mem("sample step"):
-                samples = self.obtain_samples()
-                self.buffer.add_batch(samples)
-
-            with utils.light_log_mem("policy train step"):
-                self.policy.train_step(
-                    buffer=self.buffer,
-                    itr=i,
-                    log_freq=log_freq,
-                    logger=logger
-                )
-
-            if i % discriminator_train_freq == 0 and self.train_discriminator:
-                with utils.light_log_mem("discriminator train step"):
-                    self.discriminator.train_step(
-                        buffer=self.buffer,
-                        policy=self.policy,
-                        itr=i,
-                        logger=logger
-                    )
-
-            if (
-                self.train_discriminator and i % discriminator_train_freq == 0 or
-                not self.train_discriminator and i % log_freq == 0
-            ):
-                self.log_performance(i)
-                with utils.light_log_mem("garbage collection"):
-                    gc.collect()
-
+        for i in range(1, int(self.T) + 1):
+            self.train_step(
+                i,
+                logger=logger,
+                log_memory=False,
+                train_discriminator_now=i % discriminator_train_freq == 0,
+                log_now=i % log_freq == 0
+            )
 
 def main(
         *,
@@ -231,7 +247,6 @@ def main(
                 tf.random.set_random_seed(seed)
                 if use_expert_file:
                     expert = experiments.TfObject.create_from_file(
-                        env=env,
                         fname=use_expert_file
                     )
                 else:
@@ -248,7 +263,11 @@ def main(
                                 network='cnn',
                                 total_timesteps=int(expert_total_timesteps)
                             )
-                        expert.cached_train(cache)
+                        # train it if we have to
+                        expert = policies.PolicyTrainer(
+                            policy=expert,
+                            env=env
+                        ).cached_train(cache)
 
                 with cache.context('trajectories'):
                     with cache.context(cache.hash_key(expert.key)):
