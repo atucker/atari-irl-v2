@@ -167,9 +167,11 @@ class TfObject:
 
     def __init__(self, config, scope_name='', initialize=True):
         self.config = config
+
         with tf.variable_scope(scope_name) as scope:
             self.initialize_graph()
-            self.scope = scope
+            self._scope = scope
+            self.scope_name = f"{tf.get_variable_scope().name}/{scope_name}"
 
     def initialize_graph(self):
         pass
@@ -177,7 +179,10 @@ class TfObject:
     # Methods to deal with saving/restoring parameters at all
     @property
     def tensors(self) -> List[tf.Tensor]:
-        return self.scope.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+        return tf.get_collection(
+            tf.GraphKeys.GLOBAL_VARIABLES,
+            self.scope_name
+        )
 
     @property
     def values(self) -> List[np.ndarray]:

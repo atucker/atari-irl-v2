@@ -1,4 +1,4 @@
-from typing import NamedTuple, Dict, Any, Optional
+from typing import NamedTuple, Dict, Any, Optional, List
 import gym
 import baselines
 import numpy as np
@@ -436,6 +436,18 @@ class PPO2Policy(Policy):
         if self.config.network.load_initialization:
             self.model.load(self.config.network.load_file)
 
+    # Methods to deal with saving/restoring parameters at all
+    @property
+    def tensors(self) -> List[tf.Tensor]:
+        return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='ppo2_model')
+
+    def restore(self, values: List[np.ndarray]) -> List[np.ndarray]:
+        values = [v for v in values if v.shape]
+        restores = []
+        for tf_tensor, np_array in zip(self.tensors, values):
+            restores.append(tf_tensor.assign(np_array))
+        tf.get_default_session().run(restores)
+
     def get_actions(self, obs_batch: Observations) -> PPO2Info:
         actions, values, _, neglogpacs = self.model.step(
             obs_batch.observations,
@@ -651,7 +663,7 @@ class QPolicy(Policy):
         self.debug = None
         self.act = None
 
-        Policy.__init__(self, config)
+        Policy.__init__(self, config, scope_name='qpolicy')
 
         # Create the replay buffer
         self.beta_schedule = None
