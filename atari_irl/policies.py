@@ -627,7 +627,7 @@ class QTrainingConfiguration(Configuration):
         exploration_final_eps=0.02,
         total_timesteps=100000,
         param_noise=False,
-        learning_starts=1000,
+        learning_starts=50000,
         train_freq=1,
         batch_size=32,
         target_network_update_freq=10000,
@@ -636,7 +636,7 @@ class QTrainingConfiguration(Configuration):
         exploration_initial_p=1.0,
         seed=0,
         nenvs=8,
-        nsteps=1,
+        nsteps=128,
         buffer_size=1000000
     )
 
@@ -668,9 +668,12 @@ class QPolicy(Policy):
         # Create the replay buffer
         self.beta_schedule = None
 
+        self.nbatch = self.config.training.nenvs * self.config.training.nsteps
+
+        explore_timesteps = self.config.training.exploration_fraction * self.config.training.total_timesteps
         # Create the schedule for exploration starting from 1.
         self.exploration = deepq.LinearSchedule(
-            schedule_timesteps=int(self.config.training.exploration_fraction * self.config.training.total_timesteps),
+            schedule_timesteps=int(explore_timesteps / self.nbatch),
             initial_p=self.config.training.exploration_initial_p,
             final_p=self.config.training.exploration_final_eps
         )
@@ -755,8 +758,10 @@ class QPolicy(Policy):
         assert itr == self.t
         t = itr
 
-        if t > self.config.training.learning_starts and t % self.config.training.train_freq == 0:
-            for _ in range(self.config.training.nenvs):
+        learning_starts = int(self.config.training.learning_starts / self.nbatch)
+        target_update_freq = int(self.config.training.target_network_update_freq / self.nbatch)
+        if t > learning_starts and t % self.config.training.train_freq == 0:
+            for _ in range(self.nbatch):
                 # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
                 obses_t, actions, rewards, obses_tp1, dones = buffer.sample_batch(
                     'obs', 'acts', 'rewards', 'next_obs', 'next_dones',
@@ -770,7 +775,7 @@ class QPolicy(Policy):
             del obses_tp1
             del dones
 
-        if t > self.config.training.learning_starts and t % self.config.training.target_network_update_freq == 0:
+        if t > learning_starts and t % target_update_freq == 0:
             # Update target network periodically.
             self.update_target()
             
@@ -801,7 +806,6 @@ def easy_init_Q(
     env: VecEnv,
     network: str,
     total_timesteps=100000,
-    learning_starts=1000,
     seed=0,
     **network_kwargs
 ) -> QPolicy:
@@ -809,7 +813,6 @@ def easy_init_Q(
         config=QConfig(
             training=QTrainingConfiguration(
                 total_timesteps=total_timesteps,
-                learning_starts=learning_starts,
                 target_network_update_freq=int(10000/env.num_envs),
                 seed=seed,
                 nenvs=env.num_envs
