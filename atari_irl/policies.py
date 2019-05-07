@@ -81,7 +81,7 @@ class PolicyTrainer(TfObjectTrainer[Policy]):
         assert self.policy.config.env.is_compatible(env)
         super().__init__(self.policy)
 
-    def train(self, cache):
+    def train(self, cache, i=None):
         print(f"Training {self.policy.__class__} policy with key {self.policy.key}")
         logger.configure()
 
@@ -121,7 +121,7 @@ class PolicyTrainer(TfObjectTrainer[Policy]):
             if i % int(self.policy.config.training.total_timesteps / (10 * nbatch)) == 0:
                 print("Doing a cache roundtrip...")
                 self.store_training_checkpoint(cache, itr=i)
-                stored_i, _ = self.restore_training_checkpoint(cache)
+                stored_i, _ = self.restore_training_checkpoint(cache, itr=i)
                 assert stored_i == i
 
             i += 1
