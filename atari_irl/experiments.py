@@ -174,7 +174,7 @@ class TfObject:
             self.scope_name = f"{tf.get_variable_scope().name}/{scope_name}"
 
     def initialize_graph(self):
-        pass
+        raise NotImplementedError
 
     # Methods to deal with saving/restoring parameters at all
     @property
