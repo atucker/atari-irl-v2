@@ -295,7 +295,7 @@ class Sampler:
         while len(completed_trajectories) < num_trajectories:
             policy_step = self.policy.get_actions(Observations(
                 time_shape=time_step,
-                observations=self.obs
+                observations=obs
             ))
             acts = policy_step.actions
 
@@ -313,7 +313,7 @@ class Sampler:
             for i, done in enumerate(dones):
                 if done:
                     completed_trajectories.append({
-                        'observations': np.array(observations[i]).astype(np.float16),
+                        'observations': np.array(observations[i]).astype(np.uint8),
                         'actions': one_hot(actions[i], self.env.action_space.n) if one_hot_code else np.vstack(actions[i]),
                     })
                     observations[i] = []
