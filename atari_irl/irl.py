@@ -18,18 +18,29 @@ import tensorflow as tf
 
 
 class RandomPolicy(policies.Policy):
+    def __init__(self, config: policies.EnvConfiguration) -> None:
+        super().__init__(config)
+
+    def initialize_graph(self):
+        pass
+
     def get_actions(self, obs: Observations) -> PolicyInfo:
         assert obs.time_shape.T is None
         assert obs.time_shape.num_envs is not None
         return PolicyInfo(
             time_shape=obs.time_shape,
             actions=np.array([
-                self.act_space.sample() for _ in range(obs.time_shape.num_envs)
+                self.config.action_space.sample()
+                for _ in range(obs.time_shape.num_envs)
             ])
         )
 
     def train(self, buffer: Buffer, i: int) -> None:
         pass
+
+
+def make_random_policy(env, **kwargs) -> RandomPolicy:
+    return RandomPolicy(policies.EnvConfiguration.from_env(env))
 
 
 class IRL:
@@ -70,17 +81,18 @@ class IRL:
             )
         )
 
-        self.T = 5000000000
+        self.T = 50000000
 
         policy_type = policy_args.pop('policy_type')
         make_policy_fn = {
             'Q': policies.easy_init_Q,
-            'PPO2': policies.easy_init_PPO
+            'PPO2': policies.easy_init_PPO,
+            'Random': make_random_policy
         }[policy_type]
-        policy_class = {
-            'Q': policies.QPolicy,
-            'PPO2': policies.PPO2Policy
-        }[policy_type]
+        self.policy = make_policy_fn(
+            env=self.env,
+            **policy_args
+        )
 
         self.batch_t = 128 if policy_type == 'PPO2' else 1
         self.fixed_buffer_ratio = fixed_buffer_ratio
@@ -88,16 +100,12 @@ class IRL:
             self.fixed_buffer_ratio *= 128
             policy_args['learning_starts'] = self.fixed_buffer_ratio
 
-        self.policy = make_policy_fn(
-            env=self.env,
-            **policy_args
-        )
-
-        self.buffer = buffers.ViewBuffer[policy_class.InfoClass](
+        self.buffer = buffers.ViewBuffer[self.policy.InfoClass](
             discriminator=self.discriminator,
             policy=self.policy,
-            policy_info_class=policy_class.InfoClass,
-            maxlen=int(buffer_size / env.num_envs) if buffer_size else self.fixed_buffer_ratio
+            policy_info_class=self.policy.InfoClass,
+            maxlen=int(buffer_size / env.num_envs) if buffer_size else self.fixed_buffer_ratio,
+            overwrite_rewards=overwrite_rewards
         )
         
         self.sampler = policies.Sampler(
