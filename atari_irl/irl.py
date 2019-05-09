@@ -62,13 +62,23 @@ class IRL:
         self.mask_rewards = True
         self.train_policy = True
         self.train_discriminator = True
+        overwrite_rewards = True
         build_discriminator = True
 
-        if ablation == 'train_rl':
+        def skip_discriminator():
             self.mask_rewards = False
             self.train_discriminator = False
+            nonlocal overwrite_rewards
+            overwrite_rewards = False
+            nonlocal build_discriminator
             build_discriminator = False
+
+        if ablation == 'train_rl':
+            skip_discriminator()
         elif ablation == 'train_discriminator':
+            self.train_policy = False
+        elif ablation == 'sampler':
+            skip_discriminator()
             self.train_policy = False
 
         self.discriminator = None if not build_discriminator else discriminators.AtariAIRL(
