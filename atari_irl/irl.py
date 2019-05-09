@@ -195,13 +195,10 @@ class IRL:
                     buffer=self.buffer,
                     policy=self.policy,
                     itr=i,
-                    logger=logger
+                    logger=logger if log_now else None
                 )
 
-        if (
-                self.train_discriminator and train_discriminator_now or
-                not self.train_discriminator and log_now
-        ):
+        if log_now:
             self.log_performance(i)
             with utils.light_log_mem("garbage collection", log_memory):
                 gc.collect()
