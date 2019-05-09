@@ -241,12 +241,10 @@ class AtariAIRL(TfObject):
             tf.get_default_session().run(tf.local_variables_initializer())
 
     def _process_discrim_output(self, score):
-        #score = np.clip(score, 1e-7, 1 - 1e-7)
-
-        #score = np.log(score) - np.log(1 - score)
-        score = score[:, 0]
-        return score, score
-        #return np.clip((score - self.score_mean) / self.score_std, -3, 3), score
+        score = np.clip(score, 1e-7, 1 - 1e-7)
+        new_score = np.log(score) - np.log(1 - score)
+        new_score = new_score[:, 0]
+        return new_score, score
 
     def train_step(self, buffer: Buffer, policy: Policy, batch_size=256, lr=1e-3, verbose=False, itr=0, **kwargs):
         if batch_size > buffer.time_shape.size:
