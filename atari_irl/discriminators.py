@@ -128,7 +128,7 @@ class AtariAIRL(TfObject):
         self.score_mean = 0
         self.score_std = 1
 
-        TfObject.__init__(self, config, scope_name='discriminator')
+        TfObject.__init__(self, config, scope_name=self.config.name)
 
     def initialize_graph(self):
         set_seed(self.config.seed)
