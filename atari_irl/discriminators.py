@@ -11,6 +11,14 @@ from baselines import logger
 import functools
 
 
+def leaky_relu(name, inpt):
+    return tf.nn.leaky_relu(inpt, name=name)
+
+
+def leaky_relu_batch_norm(name, inpt):
+    return tf.nn.leaky_relu(batch_norm(inpt, name))
+
+
 def batch_norm(x, name):
     shape = (1, *x.shape[1:])
     with tf.variable_scope(name):
@@ -23,22 +31,25 @@ def batch_norm(x, name):
 
 def dcgan_cnn(unscaled_images, **conv_kwargs):
     scaled_images = tf.cast(unscaled_images, tf.float32) / 255.
-    activ = lambda name, inpt: tf.nn.leaky_relu(batch_norm(inpt, name))
+    activ = leaky_relu
     h = activ('l1', conv(scaled_images, 'c1', nf=32, rf=8, stride=4, init_scale=np.sqrt(2), **conv_kwargs))
     h2 = activ('l2', conv(h, 'c2', nf=64, rf=4, stride=2, init_scale=np.sqrt(2), **conv_kwargs))
     h3 = activ('l3', conv(h2, 'c3', nf=64, rf=3, stride=1, init_scale=np.sqrt(2), **conv_kwargs))
     return conv_to_fc(h3)
 
 
-def cnn_net(x, actions=None, dout=1, **conv_kwargs):
+def last_linear_hidden_layer(x, actions=None, d=512, **conv_kwargs):
     h = dcgan_cnn(x, **conv_kwargs)
-    activ = lambda name, inpt: tf.nn.leaky_relu(batch_norm(inpt, name))
+    activ = leaky_relu
 
     if actions is not None:
-        assert dout == 1
         h = tf.concat([actions, h], axis=1)
 
-    h_final = activ('h_final', fc(h, 'fc1', nh=512, init_scale=np.sqrt(2)))
+    return activ('h_final', fc(h, 'fc1', nh=d, init_scale=np.sqrt(2)))
+
+
+def cnn_net(x, actions=None, dout=1, **conv_kwargs):
+    h_final = last_linear_hidden_layer(x=x, actions=actions, **conv_kwargs)
     return fc(h_final, 'output', nh=dout, init_scale=np.sqrt(2))
 
 
@@ -65,6 +76,8 @@ class DiscriminatorConfiguration(Configuration):
         name='discriminator',
         reward_arch=ArchConfiguration(),
         value_arch=ArchConfiguration(),
+        fuse_archs=True,
+        information_bottleneck_bits=None,
         score_discrim=False,
         discount=0.99,
         state_only=False,
@@ -72,6 +85,62 @@ class DiscriminatorConfiguration(Configuration):
         drop_framestack=False,
         seed=0
     )
+
+    def z(self, *, obs_t, nobs_t):
+        if self.information_bottleneck_bits is None:
+            with tf.variable_scope('z'):
+                h_final_next = last_linear_hidden_layer(nobs_t)
+            with tf.variable_scope('z', reuse=True):
+                h_final = last_linear_hidden_layer(obs_t)
+        else:
+            with tf.variable_scope('z'):
+                with tf.variable_scope('mu'):
+                    mu_next = last_linear_hidden_layer(nobs_t)
+                with tf.variable_scope('sigma'):
+                    sigmasq_next = last_linear_hidden_layer(nobs_t)
+
+            with tf.variable_scope('z', reuse=True):
+                with tf.variable_scope('mu', reuse=True):
+                    mu = last_linear_hidden_layer(nobs_t)
+                with tf.variable_scope('sigma', reuse=True):
+                    sigmasq = last_linear_hidden_layer(nobs_t)
+
+            h_final = tf.distributions.Normal(loc=mu, scale=sigmasq)
+            h_final_next = tf.distributions.Normal(loc=mu_next, scale=sigmasq_next)
+
+        return h_final, h_final_next
+
+    def setup_arch(self, *, obs_t, nobs_t, act_t):
+        if not self.fuse_archs:
+            with tf.variable_scope('reward'):
+                if self.state_only:
+                    reward = self.reward_arch.create(obs_t, dout=1)
+                else:
+                    reward = self.reward_arch.create(obs_t, actions=act_t, dout=1)
+
+            # value function shaping
+            with tf.variable_scope('vfn'):
+                fitted_value_fn_next = self.value_arch.create(nobs_t, dout=1)
+            with tf.variable_scope('vfn', reuse=True):
+                fitted_value_fn = self.value_arch.create(obs_t, dout=1)
+        else:
+            assert self.state_only
+            h_final, h_final_next = self.z(obs_t=obs_t, nobs_t=nobs_t)
+
+            with tf.variable_scope('vfn'):
+                fitted_value_fn_next = fc(
+                    h_final_next, 'output', nh=1, init_scale=np.sqrt(2)
+                )
+            with tf.variable_scope('vfn', reuse=True):
+                fitted_value_fn = fc(
+                    h_final, 'output', nh=1, init_scale=np.sqrt(2)
+                )
+            with tf.variable_scope('reward'):
+                reward = fc(
+                    h_final, 'output', nh=1, init_scale=np.sqrt(2)
+                )
+
+        return reward, fitted_value_fn, fitted_value_fn_next
 
 
 class ItrData(NamedTuple):
@@ -144,31 +213,12 @@ class AtariAIRL(TfObject):
             self.lr = tf.placeholder(tf.float32, (), name='lr')
 
             with tf.variable_scope('discrim') as dvs:
-                rew_input = self.obs_t
-                with tf.variable_scope('reward'):
-                    if self.state_only:
-                        self.reward = self.config.reward_arch.create(
-                            rew_input,
-                            dout=1
-                        )
-                    else:
-                        self.reward = self.config.reward_arch.create(
-                            rew_input,
-                            actions=self.act_t,
-                            dout=1
-                        )
-                        
-                # value function shaping
-                with tf.variable_scope('vfn'):
-                    fitted_value_fn_next = self.config.value_arch.create(
-                        self.nobs_t,
-                        dout=1
-                    )
-                with tf.variable_scope('vfn', reuse=True):
-                    self.value_fn = fitted_value_fn = self.config.value_arch.create(
-                        self.obs_t,
-                        dout=1
-                    )
+                self.reward, self.value_fn, fitted_value_fn_next = self.config.setup_arch(
+                    obs_t=self.obs_t,
+                    nobs_t=self.nobs_t,
+                    act_t=self.act_t
+                )
+                fitted_value_fn = self.value_fn
 
                 # Define log p_tau(a|s) = r + gamma * V(s') - V(s)
                 self.qfn = self.reward + self.gamma * fitted_value_fn_next
