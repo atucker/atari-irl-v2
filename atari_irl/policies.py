@@ -88,13 +88,15 @@ class PolicyTrainer(TfObjectTrainer[Policy]):
         sampler = Sampler(env=self.env, policy=self.policy)
         buffer = self.policy.make_training_buffer()
 
+        nbatch = self.policy.config.training.nsteps * self.policy.config.training.nenvs
+
+        i, extra_data = self.restore_training_checkpoint(cache=cache)
+        total_timesteps = (i-1) * nbatch
+        total_episodes = extra_data.get('total_episodes', 0)
+        epinfobuf = extra_data.get('epinfobuf', deque(maxlen=100))
+
         log_freq = 1
 
-        total_episodes = 0
-        total_timesteps = 0
-        i = 1
-        epinfobuf = deque(maxlen=100)
-        nbatch = self.policy.config.training.nsteps * self.policy.config.training.nenvs
         while total_timesteps < self.policy.config.training.total_timesteps:
             batch = sampler.sample_batch(self.policy.config.training.nsteps)
             epinfobuf.extend(batch.env_info.epinfobuf)
@@ -118,16 +120,22 @@ class PolicyTrainer(TfObjectTrainer[Policy]):
                 logger.logkv('buffer size', buffer.time_shape.size)
                 logger.dumpkvs()
 
-            if i % int(self.policy.config.training.total_timesteps / (10 * nbatch)) == 0:
-                print("Doing a cache roundtrip...")
-                self.store_training_checkpoint(cache, itr=i)
-                stored_i, _ = self.restore_training_checkpoint(cache, itr=i)
-                assert stored_i == i
-
             i += 1
             total_episodes += len(batch.env_info.epinfobuf)
             total_timesteps += nbatch
 
+            if i % int(self.policy.config.training.total_timesteps / (10 * nbatch)) == 0:
+                print("Doing a cache roundtrip...")
+                self.store_training_checkpoint(
+                    cache,
+                    itr=i,
+                    extra_data={
+                        'total_episodes': total_episodes,
+                        'epinfobuf': epinfobuf
+                    }
+                )
+                stored_i, _ = self.restore_training_checkpoint(cache, itr=i)
+                assert stored_i == i
 
 class Sampler:
     def __init__(self, env: VecEnv, policy: Policy) -> None:
