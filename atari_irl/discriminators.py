@@ -373,13 +373,38 @@ class AtariAIRL(TfObject):
                 self.nact_t: nact_batch,
                 self.labels: labels,
                 self.lprobs: lprobs_batch,
-                self.lr: lr
+                self.lr: lr,
+                self.train_time: True
             }
+            if self.config.reward_change_penalty is not None:
+                feed_dict[self.OLDLOGPTAU] = tf.get_default_session().run(
+                    self.log_p_tau,
+                    feed_dict=feed_dict
+                )
 
-            loss, _, acc, scores = tf.get_default_session().run(
-                [self.loss, self.step, self.update_accuracy, self.discrim_output],
-                feed_dict=feed_dict
-            )
+            # not an elif
+            if self.config.information_bottleneck_bits is None:
+                loss, _, acc, scores = tf.get_default_session().run(
+                    [self.loss, self.step, self.update_accuracy, self.discrim_output],
+                    feed_dict=feed_dict
+                )
+                mean_kl = 0.0
+            else:
+                feed_dict[self.beta] = self.beta_value
+                loss, _, acc, scores, mean_kl, next_beta = tf.get_default_session().run(
+                    [
+                        self.loss,
+                        self.step,
+                        self.update_accuracy,
+                        self.discrim_output,
+                        self.mean_kl,
+                        self.next_beta_value
+                    ],
+                    feed_dict=feed_dict
+                )
+                self.beta_value = next_beta
+
+
             # we only want the average score for the non-expert demos
             non_expert_slice = slice(0, batch_size)
             score, raw_score = self._process_discrim_output(scores[non_expert_slice])
