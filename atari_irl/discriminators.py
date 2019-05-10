@@ -79,6 +79,7 @@ class DiscriminatorConfiguration(Configuration):
         fuse_archs=True,
         information_bottleneck_bits=.05,
         gradient_penalty=None,
+        reward_change_penalty=.001,
         score_discrim=False,
         discount=0.99,
         state_only=False,
@@ -138,6 +139,7 @@ class AtariAIRL(TfObject):
         self.z = None
         self.z_dist = None
         self.z_dist_next = None
+        self.OLDLOGPTAU = None
         self.mean_kl = None
         self.reward = None
         self.value_fn = None
@@ -245,6 +247,7 @@ class AtariAIRL(TfObject):
             self.nact_t = tf.placeholder(tf.float32, [None, self.dU], name='nact')
             self.labels = tf.placeholder(tf.float32, [None, 1], name='labels')
             self.lprobs = tf.placeholder(tf.float32, [None, 1], name='log_probs')
+            self.OLDLOGPTAU = tf.placeholder(tf.float32, [None, 1], name='OLDLOGPTAU')
             self.lr = tf.placeholder(tf.float32, (), name='lr')
             self.train_time = tf.placeholder(tf.bool, (), name='train_time')
 
@@ -256,16 +259,16 @@ class AtariAIRL(TfObject):
 
                 # Define log p_tau(a|s) = r + gamma * V(s') - V(s)
                 self.qfn = self.reward + self.gamma * fitted_value_fn_next
-                log_p_tau = self.reward + self.gamma * fitted_value_fn_next - fitted_value_fn
+                self.log_p_tau = self.reward + self.gamma * fitted_value_fn_next - fitted_value_fn
 
             log_q_tau = self.lprobs
-            log_pq = tf.reduce_logsumexp([log_p_tau, log_q_tau], axis=0)
-            self.discrim_output = tf.exp(log_p_tau - log_pq)
+            log_pq = tf.reduce_logsumexp([self.log_p_tau, log_q_tau], axis=0)
+            self.discrim_output = tf.exp(self.log_p_tau - log_pq)
             self.accuracy, self.update_accuracy = tf.metrics.accuracy(
                 labels=self.labels,
                 predictions=self.discrim_output > 0.5
             )
-            expert_loss = self.labels * (log_p_tau - log_pq)
+            expert_loss = self.labels * (self.log_p_tau - log_pq)
             policy_loss = (1 - self.labels) * (log_q_tau - log_pq)
             classification_loss = -tf.reduce_mean(expert_loss + policy_loss)
 
@@ -294,7 +297,9 @@ class AtariAIRL(TfObject):
                 grad_loss = tf.reduce_mean(policy_loss_grads)
                 self.loss = self.loss + self.config.gradient_penalty * grad_loss
 
-
+            if self.config.reward_change_penalty is not None:
+                approxkl = tf.reduce_mean((self.log_p_tau - self.OLDLOGPTAU) ** 2)
+                self.loss = self.loss + self.config.reward_change_penalty * approxkl
 
             self.step = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss)
             self.grad_reward = tf.gradients(self.reward, [self.obs_t, self.act_t])
