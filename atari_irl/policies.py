@@ -507,7 +507,7 @@ class PPO2Policy(Policy):
     ) -> None:
         tstart = time.time()
         frac = 1.0 - (itr - 1.0) / self.nupdates
-        if itr == 1:
+        if self.tfirststart is None:
             self.tfirststart = tstart
 
         # Calculate the learning rate

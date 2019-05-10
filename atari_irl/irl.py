@@ -165,7 +165,7 @@ class IRL:
         logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in self.eval_epinfobuf]))
         logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in self.eval_epinfobuf]))
         logger.logkv('buffer size', self.buffer.time_shape.size)
-        logger.logkv('memory used (MB)', psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024))
+        logger.logkv('memory used (GB)', psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024 * 1024))
         logger.dumpkvs()
 
     def train_step(
@@ -180,7 +180,7 @@ class IRL:
             samples = self.obtain_samples()
             self.buffer.add_batch(samples)
 
-        if self.train_policy:
+        if self.train_policy and i > self.fixed_buffer_ratio:
             with utils.light_log_mem("policy train step", log_memory):
                 self.policy.train_step(
                     buffer=self.buffer,
