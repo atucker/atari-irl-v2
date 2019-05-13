@@ -71,6 +71,15 @@ class ArchConfiguration(Configuration):
             return tf.float32
 
 
+class ScoreConfiguration(Configuration):
+    default_values = dict(
+        score_type='discrim',
+        transfer_function='positive',
+        mean_type=None,
+        rescale_type=None
+    )
+
+
 class DiscriminatorConfiguration(Configuration):
     default_values = dict(
         name='discriminator',
@@ -78,15 +87,77 @@ class DiscriminatorConfiguration(Configuration):
         value_arch=ArchConfiguration(),
         fuse_archs=True,
         information_bottleneck_bits=.05,
+        kl_constraint_alpha=1e-4,
         gradient_penalty=None,
         reward_change_penalty=None,
-        score_discrim=False,
         discount=0.99,
         state_only=False,
         max_itrs=100,
         drop_framestack=False,
-        seed=0
+        seed=0,
+        score_config=ScoreConfiguration()
     )
+
+
+class ScoreProcessor:
+    def __init__(self, config: ScoreConfiguration, discriminator: 'AtariAIRL') -> None:
+        self.config = config
+        self.random_buffer = None
+        self.discriminator = discriminator
+
+    @property
+    def score_tensor(self) -> tf.Tensor:
+        return {
+            'reward': self.discriminator.reward,
+            'discrim': self.discriminator.discrim_output,
+            'q': self.discriminator.qfn,
+            'value': self.discriminator.value_fn
+        }[self.config.score_type]
+
+    def initialize(self, random_buffer: Buffer) -> None:
+        self.random_buffer = random_buffer
+
+    def _process_scores(self, scores) -> np.ndarray:
+        if self.config.score_type == 'discrim':
+            scores = np.clip(scores, 1e-7, 1 - 1e-7)
+
+        scores = {
+            'positive': lambda s: -np.log(1 - s),
+            'negative': lambda s: np.log(s),
+            'both': lambda s: np.log(s) - np.log(1 - s),
+            'identity': lambda s: s
+        }[self.config.transfer_function](scores)
+
+        return scores
+
+    def train_itr(self, *, expert_scores=None, policy_scores=None) -> None:
+        pass
+
+    def finalize_train_step(self, logger=None) -> None:
+        if logger:
+            pass
+
+    def eval(
+            self, *,
+            obs: np.ndarray,
+            acts: np.ndarray,
+            next_obs: Optional[np.ndarray]=None,
+            lprobs: Optional[np.ndarray]=None
+    ) -> np.ndarray:
+        modify_obs = self.discriminator.modify_obs
+        scores = self._process_scores(
+            tf.get_default_session().run(
+                self.score_tensor,
+                feed_dict={
+                    self.discriminator.act_t: acts,
+                    self.discriminator.obs_t: modify_obs(obs),
+                    self.discriminator.nobs_t: modify_obs(next_obs),
+                    self.discriminator.lprobs: lprobs,
+                    self.discriminator.train_time: False
+                }
+            )
+        )
+        return scores
 
 
 class ItrData(NamedTuple):
@@ -97,14 +168,22 @@ class ItrData(NamedTuple):
 
 
 class AtariAIRL(TfObject):
+    class_registration_name = 'IRLDiscriminator'
+
     def __init__(
-         self, *,
-         env,
-         expert_buffer,
-         config
+            self, *,
+            env,
+            expert_buffer,
+            random_buffer=None,
+            config
     ):
         self.expert_buffer = expert_buffer
+        self.random_buffer = random_buffer
         self.config = config
+        self.score_manager = ScoreProcessor(
+            config=config.score_config,
+            discriminator=self
+        )
 
         self.action_space = env.action_space
         self.dO = functools.reduce(
@@ -118,7 +197,6 @@ class AtariAIRL(TfObject):
             self.dOshape = (*self.dOshape[:-1], 1)
         self.dU = env.action_space.n
 
-        self.score_discrim = self.config.score_discrim
         self.state_only = self.config.state_only
         self.drop_framestack = self.config.drop_framestack
         self.modify_obs = lambda obs: obs
@@ -286,7 +364,7 @@ class AtariAIRL(TfObject):
                     info_loss = self.beta * (self.mean_kl - Ic)
                     self.next_beta_value = tf.math.maximum(
                         0.0,
-                        self.beta + 1e-5 * (self.mean_kl - Ic)
+                        self.beta + self.config.kl_constraint_alpha * (self.mean_kl - Ic)
                     )
                     self.loss = self.loss + info_loss
 
@@ -309,17 +387,10 @@ class AtariAIRL(TfObject):
             U.initialize()
             tf.get_default_session().run(tf.local_variables_initializer())
 
-    def _process_discrim_output(self, score):
-        score = np.clip(score, 1e-7, 1 - 1e-7)
-        new_score = np.log(score) - np.log(1 - score)
-        new_score = new_score[:, 0]
-        return new_score, score
-
     def train_step(self, buffer: Buffer, policy: Policy, batch_size=256, lr=1e-3, verbose=False, itr=0, **kwargs):
         if batch_size > buffer.time_shape.size:
             return
-        
-        raw_discrim_scores = []
+
         stacker = Stacker(ItrData)
         
         # Train discriminator
@@ -347,7 +418,6 @@ class AtariAIRL(TfObject):
                     batch_size=batch_size,
                     modify_obs=self.modify_obs
                 )
-            
 
             # TODO(Aaron): put this graph directly into the reward network
             expert_lprobs_batch = policy.get_a_logprobs(
@@ -389,7 +459,12 @@ class AtariAIRL(TfObject):
             # not an elif
             if self.config.information_bottleneck_bits is None:
                 loss, _, acc, scores = tf.get_default_session().run(
-                    [self.loss, self.step, self.update_accuracy, self.discrim_output],
+                    [
+                        self.loss,
+                        self.step,
+                        self.update_accuracy,
+                        self.score_manager.score_tensor
+                    ],
                     feed_dict=feed_dict
                 )
                 mean_kl = 0.0
@@ -400,7 +475,7 @@ class AtariAIRL(TfObject):
                         self.loss,
                         self.step,
                         self.update_accuracy,
-                        self.discrim_output,
+                        self.score_manager.score_tensor,
                         self.mean_kl,
                         self.next_beta_value
                     ],
@@ -408,29 +483,23 @@ class AtariAIRL(TfObject):
                 )
                 self.beta_value = next_beta
 
-
-            # we only want the average score for the non-expert demos
-            non_expert_slice = slice(0, batch_size)
-            score, raw_score = self._process_discrim_output(scores[non_expert_slice])
-            assert len(score) == batch_size
-            assert np.sum(labels[non_expert_slice]) == 0
-            raw_discrim_scores.append(raw_score)
+            policy_slice = slice(0, batch_size)
+            expert_slice = slice(batch_size, -1)
+            self.score_manager.train_itr(
+                policy_scores=scores[policy_slice],
+                expert_scores=scores[expert_slice]
+            )
 
             stacker.append(ItrData(
                 loss=loss,
                 accuracy=acc,
-                score=np.mean(score),
+                score=np.mean(scores[policy_slice]), # type: ignore
                 mean_kl=mean_kl
             ))
 
-
         mean_loss = np.mean(stacker.loss)
         mean_acc = np.mean(stacker.accuracy)
-        mean_score = np.mean(score)
-        if verbose and (it % int(self.max_itrs / 10) == 0 or it == self.max_itrs - 1):
-            print(f'\t{it}/{self.max_itrs}')
-            print('\tLoss:%f' % mean_loss)
-            print('\tAccuracy:%f' % mean_acc)
+        mean_score = np.mean(stacker.score)
 
         if logger:
             logger.logkv('GCLDiscrimLoss', mean_loss)
@@ -440,11 +509,6 @@ class AtariAIRL(TfObject):
                 logger.logkv('BottleneckKL', np.mean(stacker.mean_kl))
                 logger.logkv('Ic', self.config.information_bottleneck_bits)
                 logger.logkv('BottleneckBeta', self.beta_value)
-
-        # set the center for our normal distribution
-        scores = np.hstack(raw_discrim_scores)
-        self.score_std = np.std(scores)
-        self.score_mean = np.mean(scores)
 
     def eval(
         self,
@@ -458,35 +522,15 @@ class AtariAIRL(TfObject):
             acts = np.array(acts)
         if len(acts.shape) == 1:
             acts = one_hot(acts, self.dU)
-        if self.score_discrim:
-            obs, obs_next, acts, path_probs = (
-                self.modify_obs(obs),
-                self.modify_obs(next_obs),
-                acts,
-                lprobs
-            )
-            path_probs = np.expand_dims(path_probs, axis=1)
-            scores = tf.get_default_session().run(
-                self.discrim_output,
-                feed_dict={
-                    self.act_t: acts,
-                    self.obs_t: obs,
-                    self.nobs_t: obs_next,
-                    self.lprobs: path_probs,
-                    self.train_time: False
-                }
-            )
-            score, _ = self._process_discrim_output(scores)
+        if len(lprobs.shape) == 1:
+            lprobs = lprobs.reshape((lprobs.shape[0], 1))
 
-        else:
-            reward = tf.get_default_session().run(
-                self.reward, feed_dict={
-                    self.act_t: acts,
-                    self.obs_t: self.modify_obs(obs),
-                    self.train_time: False
-                }
-            )
-            score = reward[:, 0]
+        score = self.score_manager.eval(
+            obs=obs,
+            acts=acts,
+            next_obs=next_obs,
+            lprobs=lprobs
+        )
 
         if np.isnan(np.mean(score)):
             import pdb; pdb.set_trace()
