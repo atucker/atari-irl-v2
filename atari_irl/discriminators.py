@@ -79,7 +79,7 @@ class DiscriminatorConfiguration(Configuration):
         fuse_archs=True,
         information_bottleneck_bits=.05,
         gradient_penalty=None,
-        reward_change_penalty=.001,
+        reward_change_penalty=None,
         score_discrim=False,
         discount=0.99,
         state_only=False,
@@ -291,6 +291,8 @@ class AtariAIRL(TfObject):
                     self.loss = self.loss + info_loss
 
             if self.config.gradient_penalty is not None:
+                # For some reason I can't compute this out to obs_t, so I don't
+                # really think that this works...
                 policy_loss_grads = tf.gradients(
                     -tf.reduce_mean(policy_loss), self.z
                 )
@@ -322,6 +324,8 @@ class AtariAIRL(TfObject):
         
         # Train discriminator
         for it in range(self.max_itrs):
+            if it % 20 == 0:
+                print(f"Discriminator training itr {it}...")
             nobs_batch, obs_batch, nact_batch, act_batch, lprobs_batch = \
                 buffer.sample_batch(
                     'next_obs',

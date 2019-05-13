@@ -166,6 +166,7 @@ class TfObject:
     version = 1.0
 
     def __init__(self, config, scope_name='', initialize=True):
+        print(f"Initializing TfObject {self.class_registration_name} with config {config}")
         self.config = config
 
         with tf.variable_scope(scope_name) as scope:

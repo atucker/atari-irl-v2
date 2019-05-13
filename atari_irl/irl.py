@@ -56,6 +56,8 @@ class IRL:
             fixed_buffer_ratio=32,
             buffer_size=None,
             state_only=False,
+            information_bottleneck_bits=None,
+            reward_change_penalty=None
     ):
         self.env = env
 
@@ -87,7 +89,9 @@ class IRL:
             config=discriminators.DiscriminatorConfiguration(
                 score_discrim=score_discrim,
                 max_itrs=100,
-                state_only=state_only
+                state_only=state_only,
+                information_bottleneck_bits=information_bottleneck_bits,
+                reward_change_penalty=reward_change_penalty
             )
         )
 
@@ -234,7 +238,9 @@ def main(
         imitator_policy_type='PPO',
         state_only=False,
         num_envs=8,
-        load_policy_initialization=None
+        load_policy_initialization=None,
+        information_bottleneck_bits=None,
+        reward_change_penalty=None
 ):
     print(f"Running process {os.getpid()}")
     cache = experiments.FilesystemCache('test_cache')
@@ -249,7 +255,7 @@ def main(
         allow_soft_placement=True,
         intra_op_parallelism_threads=ncpu,
         inter_op_parallelism_threads=ncpu,
-        device_count={'GPU': 2},
+        device_count={'GPU': 4},
     )
     config.gpu_options.allow_growth=True
 
@@ -326,7 +332,9 @@ def main(
                         score_discrim=score_discrim,
                         fixed_buffer_ratio=update_ratio,
                         buffer_size=buffer_size,
-                        state_only=state_only
+                        state_only=state_only,
+                        information_bottleneck_bits=information_bottleneck_bits,
+                        reward_change_penalty=reward_change_penalty,
                     )
                     irl_runner.train()
 
