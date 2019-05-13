@@ -18,18 +18,29 @@ import tensorflow as tf
 
 
 class RandomPolicy(policies.Policy):
+    def __init__(self, config: policies.EnvConfiguration) -> None:
+        super().__init__(config)
+
+    def initialize_graph(self):
+        pass
+
     def get_actions(self, obs: Observations) -> PolicyInfo:
         assert obs.time_shape.T is None
         assert obs.time_shape.num_envs is not None
         return PolicyInfo(
             time_shape=obs.time_shape,
             actions=np.array([
-                self.act_space.sample() for _ in range(obs.time_shape.num_envs)
+                self.config.action_space.sample()
+                for _ in range(obs.time_shape.num_envs)
             ])
         )
 
     def train(self, buffer: Buffer, i: int) -> None:
         pass
+
+
+def make_random_policy(env, **kwargs) -> RandomPolicy:
+    return RandomPolicy(policies.EnvConfiguration.from_env(env))
 
 
 class IRL:
@@ -45,19 +56,31 @@ class IRL:
             fixed_buffer_ratio=32,
             buffer_size=None,
             state_only=False,
+            information_bottleneck_bits=None,
+            reward_change_penalty=None
     ):
         self.env = env
 
         self.mask_rewards = True
         self.train_policy = True
         self.train_discriminator = True
+        overwrite_rewards = True
         build_discriminator = True
 
-        if ablation == 'train_rl':
+        def skip_discriminator():
             self.mask_rewards = False
             self.train_discriminator = False
+            nonlocal overwrite_rewards
+            overwrite_rewards = False
+            nonlocal build_discriminator
             build_discriminator = False
+
+        if ablation == 'train_rl':
+            skip_discriminator()
         elif ablation == 'train_discriminator':
+            self.train_policy = False
+        elif ablation == 'sampler':
+            skip_discriminator()
             self.train_policy = False
 
         self.discriminator = None if not build_discriminator else discriminators.AtariAIRL(
@@ -66,21 +89,24 @@ class IRL:
             config=discriminators.DiscriminatorConfiguration(
                 score_discrim=score_discrim,
                 max_itrs=100,
-                state_only=state_only
+                state_only=state_only,
+                information_bottleneck_bits=information_bottleneck_bits,
+                reward_change_penalty=reward_change_penalty
             )
         )
 
-        self.T = 5000000000
+        self.T = 50000000
 
         policy_type = policy_args.pop('policy_type')
         make_policy_fn = {
             'Q': policies.easy_init_Q,
-            'PPO2': policies.easy_init_PPO
+            'PPO2': policies.easy_init_PPO,
+            'Random': make_random_policy
         }[policy_type]
-        policy_class = {
-            'Q': policies.QPolicy,
-            'PPO2': policies.PPO2Policy
-        }[policy_type]
+        self.policy = make_policy_fn(
+            env=self.env,
+            **policy_args
+        )
 
         self.batch_t = 128 if policy_type == 'PPO2' else 1
         self.fixed_buffer_ratio = fixed_buffer_ratio
@@ -88,16 +114,12 @@ class IRL:
             self.fixed_buffer_ratio *= 128
             policy_args['learning_starts'] = self.fixed_buffer_ratio
 
-        self.policy = make_policy_fn(
-            env=self.env,
-            **policy_args
-        )
-
-        self.buffer = buffers.ViewBuffer[policy_class.InfoClass](
+        self.buffer = buffers.ViewBuffer[self.policy.InfoClass](
             discriminator=self.discriminator,
             policy=self.policy,
-            policy_info_class=policy_class.InfoClass,
-            maxlen=int(buffer_size / env.num_envs) if buffer_size else self.fixed_buffer_ratio
+            policy_info_class=self.policy.InfoClass,
+            maxlen=int(buffer_size / env.num_envs) if buffer_size else self.fixed_buffer_ratio,
+            overwrite_rewards=overwrite_rewards
         )
         
         self.sampler = policies.Sampler(
@@ -147,7 +169,7 @@ class IRL:
         logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in self.eval_epinfobuf]))
         logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in self.eval_epinfobuf]))
         logger.logkv('buffer size', self.buffer.time_shape.size)
-        logger.logkv('memory used (MB)', psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024))
+        logger.logkv('memory used (GB)', psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024 * 1024))
         logger.dumpkvs()
 
     def train_step(
@@ -162,7 +184,7 @@ class IRL:
             samples = self.obtain_samples()
             self.buffer.add_batch(samples)
 
-        if self.train_policy:
+        if self.train_policy and i > self.fixed_buffer_ratio:
             with utils.light_log_mem("policy train step", log_memory):
                 self.policy.train_step(
                     buffer=self.buffer,
@@ -177,13 +199,10 @@ class IRL:
                     buffer=self.buffer,
                     policy=self.policy,
                     itr=i,
-                    logger=logger
+                    logger=logger if log_now else None
                 )
 
-        if (
-                self.train_discriminator and train_discriminator_now or
-                not self.train_discriminator and log_now
-        ):
+        if log_now:
             self.log_performance(i)
             with utils.light_log_mem("garbage collection", log_memory):
                 gc.collect()
@@ -219,7 +238,9 @@ def main(
         imitator_policy_type='PPO',
         state_only=False,
         num_envs=8,
-        load_policy_initialization=None
+        load_policy_initialization=None,
+        information_bottleneck_bits=None,
+        reward_change_penalty=None
 ):
     print(f"Running process {os.getpid()}")
     cache = experiments.FilesystemCache('test_cache')
@@ -234,7 +255,7 @@ def main(
         allow_soft_placement=True,
         intra_op_parallelism_threads=ncpu,
         inter_op_parallelism_threads=ncpu,
-        device_count={'GPU': 2},
+        device_count={'GPU': 4},
     )
     config.gpu_options.allow_growth=True
 
@@ -311,7 +332,9 @@ def main(
                         score_discrim=score_discrim,
                         fixed_buffer_ratio=update_ratio,
                         buffer_size=buffer_size,
-                        state_only=state_only
+                        state_only=state_only,
+                        information_bottleneck_bits=information_bottleneck_bits,
+                        reward_change_penalty=reward_change_penalty,
                     )
                     irl_runner.train()
 

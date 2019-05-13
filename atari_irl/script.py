@@ -25,6 +25,8 @@ parser.add_argument('--no-irl', dest='do_irl', action='store_false')
 parser.set_defaults(do_irl=True)
 parser.add_argument('--num_envs', type=int, default=8)
 parser.add_argument('--load_policy_initialization', type=str, default=None)
+parser.add_argument('--information_bottleneck_bits', type=float, default=None)
+parser.add_argument('--reward_change_penalty', type=float, default=None)
 
 args = parser.parse_args()
 
@@ -45,5 +47,7 @@ main(
     imitator_policy_type=args.imitator_policy_type,
     do_irl=args.do_irl,
     state_only=args.state_only,
-    num_envs=args.num_envs
+    num_envs=args.num_envs,
+    information_bottleneck_bits=args.information_bottleneck_bits,
+    reward_change_penalty=args.reward_change_penalty,
 )

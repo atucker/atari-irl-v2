@@ -166,6 +166,7 @@ class TfObject:
     version = 1.0
 
     def __init__(self, config, scope_name='', initialize=True):
+        print(f"Initializing TfObject {self.class_registration_name} with config {config}")
         self.config = config
 
         with tf.variable_scope(scope_name) as scope:
@@ -174,7 +175,7 @@ class TfObject:
             self.scope_name = f"{tf.get_variable_scope().name}/{scope_name}"
 
     def initialize_graph(self):
-        pass
+        raise NotImplementedError
 
     # Methods to deal with saving/restoring parameters at all
     @property
@@ -261,21 +262,23 @@ class TfObjectTrainer(Generic[T]):
             with cache.context(cache.hash_key(self.trainee.key)):
                 with cache.context(str(itr)):
                     self.trainee.store_in_cache(cache)
-                    for key, value in extra_data.items():
-                        cache[key] = value
+                    cache['extra_data'] = extra_data
 
     def restore_training_checkpoint(self, cache: Cache, itr=None):
         with cache.context('training'):
             with cache.context(cache.hash_key(self.trainee.key)):
                 available_itrs = cache.context_item_keys()
                 if not available_itrs:
-                    assert False, "restore initialized from empty context, cannot resume training"
+                    print("Didn't find anything to resume, starting from scratch")
+                    return 1, {}
                 itr = itr or max([int(itr) for itr in available_itrs])
                 with cache.context(str(itr)):
                     self.trainee.restore_values_from_cache(cache)
-                    extra_data = {}
-                    for key in cache.context_item_keys():
-                        if cache.hash_key(self.trainee.key) not in key:
-                            extra_data[key] = cache[key]
+                    if 'extra_data' in cache:
+                        extra_data = cache['extra_data']
+                    else:
+                        extra_data = {}
+
+        print(f"resuming training from iteration {itr} using {cache.filename(self.trainee.key)}")
         return itr, extra_data
 

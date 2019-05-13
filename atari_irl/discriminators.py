@@ -11,6 +11,14 @@ from baselines import logger
 import functools
 
 
+def leaky_relu(name, inpt):
+    return tf.nn.leaky_relu(inpt, name=name)
+
+
+def leaky_relu_batch_norm(name, inpt):
+    return tf.nn.leaky_relu(batch_norm(inpt, name))
+
+
 def batch_norm(x, name):
     shape = (1, *x.shape[1:])
     with tf.variable_scope(name):
@@ -23,22 +31,25 @@ def batch_norm(x, name):
 
 def dcgan_cnn(unscaled_images, **conv_kwargs):
     scaled_images = tf.cast(unscaled_images, tf.float32) / 255.
-    activ = lambda name, inpt: tf.nn.leaky_relu(batch_norm(inpt, name))
+    activ = leaky_relu
     h = activ('l1', conv(scaled_images, 'c1', nf=32, rf=8, stride=4, init_scale=np.sqrt(2), **conv_kwargs))
     h2 = activ('l2', conv(h, 'c2', nf=64, rf=4, stride=2, init_scale=np.sqrt(2), **conv_kwargs))
     h3 = activ('l3', conv(h2, 'c3', nf=64, rf=3, stride=1, init_scale=np.sqrt(2), **conv_kwargs))
     return conv_to_fc(h3)
 
 
-def cnn_net(x, actions=None, dout=1, **conv_kwargs):
+def last_linear_hidden_layer(x, actions=None, d=512, **conv_kwargs):
     h = dcgan_cnn(x, **conv_kwargs)
-    activ = lambda name, inpt: tf.nn.leaky_relu(batch_norm(inpt, name))
+    activ = leaky_relu
 
     if actions is not None:
-        assert dout == 1
         h = tf.concat([actions, h], axis=1)
 
-    h_final = activ('h_final', fc(h, 'fc1', nh=512, init_scale=np.sqrt(2)))
+    return activ('h_final', fc(h, 'fc1', nh=d, init_scale=np.sqrt(2)))
+
+
+def cnn_net(x, actions=None, dout=1, **conv_kwargs):
+    h_final = last_linear_hidden_layer(x=x, actions=actions, **conv_kwargs)
     return fc(h_final, 'output', nh=dout, init_scale=np.sqrt(2))
 
 
@@ -65,6 +76,10 @@ class DiscriminatorConfiguration(Configuration):
         name='discriminator',
         reward_arch=ArchConfiguration(),
         value_arch=ArchConfiguration(),
+        fuse_archs=True,
+        information_bottleneck_bits=.05,
+        gradient_penalty=None,
+        reward_change_penalty=None,
         score_discrim=False,
         discount=0.99,
         state_only=False,
@@ -78,6 +93,7 @@ class ItrData(NamedTuple):
     loss: float
     accuracy: float
     score: float
+    mean_kl: float
 
 
 class AtariAIRL(TfObject):
@@ -116,6 +132,15 @@ class AtariAIRL(TfObject):
         self.labels = None
         self.lprobs = None
         self.lr = None
+        self.beta = None
+        self.beta_value = None
+        self.next_beta_value = None
+        self.train_time = None
+        self.z = None
+        self.z_dist = None
+        self.z_dist_next = None
+        self.OLDLOGPTAU = None
+        self.mean_kl = None
         self.reward = None
         self.value_fn = None
         self.qfn = None
@@ -128,7 +153,88 @@ class AtariAIRL(TfObject):
         self.score_mean = 0
         self.score_std = 1
 
-        TfObject.__init__(self, config, scope_name='discriminator')
+        TfObject.__init__(self, config, scope_name=self.config.name)
+
+    def _build_z(self, *, obs_t, nobs_t, train_time):
+        if self.config.information_bottleneck_bits is None:
+            with tf.variable_scope('z'):
+                h_final_next = last_linear_hidden_layer(nobs_t)
+            with tf.variable_scope('z', reuse=True):
+                h_final = last_linear_hidden_layer(obs_t)
+        else:
+            with tf.variable_scope('z'):
+                with tf.variable_scope('mu'):
+                    mu_next = last_linear_hidden_layer(nobs_t)
+                with tf.variable_scope('sigma'):
+                    sigmasq_next = last_linear_hidden_layer(nobs_t)
+
+            with tf.variable_scope('z', reuse=True):
+                with tf.variable_scope('mu', reuse=True):
+                    mu = last_linear_hidden_layer(obs_t)
+                with tf.variable_scope('sigma', reuse=True):
+                    sigmasq = last_linear_hidden_layer(obs_t)
+
+            self.z_dist = tf.distributions.Normal(loc=mu, scale=sigmasq)
+            self.z_dist_next = tf.distributions.Normal(loc=mu_next, scale=sigmasq_next)
+            h_final = tf.cond(
+                train_time,
+                lambda: self.z_dist.sample(),
+                lambda: mu
+            )
+            h_final_next = tf.cond(
+                train_time,
+                lambda: self.z_dist_next.sample(),
+                lambda: mu_next
+            )
+
+        return h_final, h_final_next
+
+    def _setup_reward_and_shaping_functions(self):
+        if not self.config.fuse_archs:
+            with tf.variable_scope('reward'):
+                if self.state_only:
+                    reward = self.config.reward_arch.create(
+                        self.obs_t, dout=1
+                    )
+                else:
+                    reward = self.config.reward_arch.create(
+                        self.obs_t, actions=self.act_t, dout=1
+                    )
+
+            # value function shaping
+            with tf.variable_scope('vfn'):
+                fitted_value_fn_next = self.config.value_arch.create(
+                    self.nobs_t,
+                    dout=1
+                )
+            with tf.variable_scope('vfn', reuse=True):
+                fitted_value_fn = self.config.value_arch.create(
+                    self.obs_t,
+                    dout=1
+                )
+        else:
+            assert self.state_only
+            z, z_next = self._build_z(
+                obs_t=self.obs_t,
+                nobs_t=self.nobs_t,
+                train_time=self.train_time
+            )
+            self.z = z
+
+            with tf.variable_scope('vfn'):
+                fitted_value_fn_next = fc(
+                    z_next, 'output', nh=1, init_scale=np.sqrt(2)
+                )
+            with tf.variable_scope('vfn', reuse=True):
+                fitted_value_fn = fc(
+                    z, 'output', nh=1, init_scale=np.sqrt(2)
+                )
+            with tf.variable_scope('reward'):
+                reward = fc(
+                    z, 'output', nh=1, init_scale=np.sqrt(2)
+                )
+
+        return reward, fitted_value_fn, fitted_value_fn_next
 
     def initialize_graph(self):
         set_seed(self.config.seed)
@@ -141,62 +247,73 @@ class AtariAIRL(TfObject):
             self.nact_t = tf.placeholder(tf.float32, [None, self.dU], name='nact')
             self.labels = tf.placeholder(tf.float32, [None, 1], name='labels')
             self.lprobs = tf.placeholder(tf.float32, [None, 1], name='log_probs')
+            self.OLDLOGPTAU = tf.placeholder(tf.float32, [None, 1], name='OLDLOGPTAU')
             self.lr = tf.placeholder(tf.float32, (), name='lr')
+            self.train_time = tf.placeholder(tf.bool, (), name='train_time')
 
             with tf.variable_scope('discrim') as dvs:
-                rew_input = self.obs_t
-                with tf.variable_scope('reward'):
-                    if self.state_only:
-                        self.reward = self.config.reward_arch.create(
-                            rew_input,
-                            dout=1
-                        )
-                    else:
-                        self.reward = self.config.reward_arch.create(
-                            rew_input,
-                            actions=self.act_t,
-                            dout=1
-                        )
-                        
-                # value function shaping
-                with tf.variable_scope('vfn'):
-                    fitted_value_fn_next = self.config.value_arch.create(
-                        self.nobs_t,
-                        dout=1
-                    )
-                with tf.variable_scope('vfn', reuse=True):
-                    self.value_fn = fitted_value_fn = self.config.value_arch.create(
-                        self.obs_t,
-                        dout=1
-                    )
+                (
+                    self.reward, self.value_fn, fitted_value_fn_next
+                ) = self._setup_reward_and_shaping_functions()
+                fitted_value_fn = self.value_fn
 
                 # Define log p_tau(a|s) = r + gamma * V(s') - V(s)
                 self.qfn = self.reward + self.gamma * fitted_value_fn_next
-                log_p_tau = self.reward + self.gamma * fitted_value_fn_next - fitted_value_fn
+                self.log_p_tau = self.reward + self.gamma * fitted_value_fn_next - fitted_value_fn
 
             log_q_tau = self.lprobs
-
-            log_pq = tf.reduce_logsumexp([log_p_tau, log_q_tau], axis=0)
-            self.discrim_output = tf.exp(log_p_tau - log_pq)
+            log_pq = tf.reduce_logsumexp([self.log_p_tau, log_q_tau], axis=0)
+            self.discrim_output = tf.exp(self.log_p_tau - log_pq)
             self.accuracy, self.update_accuracy = tf.metrics.accuracy(
                 labels=self.labels,
                 predictions=self.discrim_output > 0.5
             )
-            self.loss = -tf.reduce_mean(self.labels * (log_p_tau - log_pq) + (1 - self.labels) * (log_q_tau - log_pq))
-            self.step = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss)
+            expert_loss = self.labels * (self.log_p_tau - log_pq)
+            policy_loss = (1 - self.labels) * (log_q_tau - log_pq)
+            classification_loss = -tf.reduce_mean(expert_loss + policy_loss)
 
+            self.loss = classification_loss
+            if self.config.information_bottleneck_bits is not None:
+                with tf.variable_scope('bottleneck') as _bn:
+                    self.beta = tf.placeholder(tf.float32, (), name='beta')
+                    self.beta_value = 1
+                    self.mean_kl = tf.reduce_mean(
+                        self.z_dist.kl_divergence(
+                            tf.distributions.Normal(loc=0.0, scale=1.0)
+                        )
+                    )
+                    Ic = self.config.information_bottleneck_bits
+                    info_loss = self.beta * (self.mean_kl - Ic)
+                    self.next_beta_value = tf.math.maximum(
+                        0.0,
+                        self.beta + 1e-5 * (self.mean_kl - Ic)
+                    )
+                    self.loss = self.loss + info_loss
+
+            if self.config.gradient_penalty is not None:
+                # For some reason I can't compute this out to obs_t, so I don't
+                # really think that this works...
+                policy_loss_grads = tf.gradients(
+                    -tf.reduce_mean(policy_loss), self.z
+                )
+                grad_loss = tf.reduce_mean(policy_loss_grads)
+                self.loss = self.loss + self.config.gradient_penalty * grad_loss
+
+            if self.config.reward_change_penalty is not None:
+                approxkl = tf.reduce_mean((self.log_p_tau - self.OLDLOGPTAU) ** 2)
+                self.loss = self.loss + self.config.reward_change_penalty * approxkl
+
+            self.step = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss)
             self.grad_reward = tf.gradients(self.reward, [self.obs_t, self.act_t])
-            
+
             U.initialize()
             tf.get_default_session().run(tf.local_variables_initializer())
 
     def _process_discrim_output(self, score):
-        #score = np.clip(score, 1e-7, 1 - 1e-7)
-
-        #score = np.log(score) - np.log(1 - score)
-        score = score[:, 0]
-        return score, score
-        #return np.clip((score - self.score_mean) / self.score_std, -3, 3), score
+        score = np.clip(score, 1e-7, 1 - 1e-7)
+        new_score = np.log(score) - np.log(1 - score)
+        new_score = new_score[:, 0]
+        return new_score, score
 
     def train_step(self, buffer: Buffer, policy: Policy, batch_size=256, lr=1e-3, verbose=False, itr=0, **kwargs):
         if batch_size > buffer.time_shape.size:
@@ -207,6 +324,8 @@ class AtariAIRL(TfObject):
         
         # Train discriminator
         for it in range(self.max_itrs):
+            if it % 20 == 0:
+                print(f"Discriminator training itr {it}...")
             nobs_batch, obs_batch, nact_batch, act_batch, lprobs_batch = \
                 buffer.sample_batch(
                     'next_obs',
@@ -258,13 +377,38 @@ class AtariAIRL(TfObject):
                 self.nact_t: nact_batch,
                 self.labels: labels,
                 self.lprobs: lprobs_batch,
-                self.lr: lr
+                self.lr: lr,
+                self.train_time: True
             }
+            if self.config.reward_change_penalty is not None:
+                feed_dict[self.OLDLOGPTAU] = tf.get_default_session().run(
+                    self.log_p_tau,
+                    feed_dict=feed_dict
+                )
 
-            loss, _, acc, scores = tf.get_default_session().run(
-                [self.loss, self.step, self.update_accuracy, self.discrim_output],
-                feed_dict=feed_dict
-            )
+            # not an elif
+            if self.config.information_bottleneck_bits is None:
+                loss, _, acc, scores = tf.get_default_session().run(
+                    [self.loss, self.step, self.update_accuracy, self.discrim_output],
+                    feed_dict=feed_dict
+                )
+                mean_kl = 0.0
+            else:
+                feed_dict[self.beta] = self.beta_value
+                loss, _, acc, scores, mean_kl, next_beta = tf.get_default_session().run(
+                    [
+                        self.loss,
+                        self.step,
+                        self.update_accuracy,
+                        self.discrim_output,
+                        self.mean_kl,
+                        self.next_beta_value
+                    ],
+                    feed_dict=feed_dict
+                )
+                self.beta_value = next_beta
+
+
             # we only want the average score for the non-expert demos
             non_expert_slice = slice(0, batch_size)
             score, raw_score = self._process_discrim_output(scores[non_expert_slice])
@@ -275,7 +419,8 @@ class AtariAIRL(TfObject):
             stacker.append(ItrData(
                 loss=loss,
                 accuracy=acc,
-                score=np.mean(score)
+                score=np.mean(score),
+                mean_kl=mean_kl
             ))
 
 
@@ -287,11 +432,14 @@ class AtariAIRL(TfObject):
             print('\tLoss:%f' % mean_loss)
             print('\tAccuracy:%f' % mean_acc)
 
-
         if logger:
             logger.logkv('GCLDiscrimLoss', mean_loss)
             logger.logkv('GCLDiscrimAccuracy', mean_acc)
             logger.logkv('GCLMeanScore', mean_score)
+            if self.config.information_bottleneck_bits is not None:
+                logger.logkv('BottleneckKL', np.mean(stacker.mean_kl))
+                logger.logkv('Ic', self.config.information_bottleneck_bits)
+                logger.logkv('BottleneckBeta', self.beta_value)
 
         # set the center for our normal distribution
         scores = np.hstack(raw_discrim_scores)
@@ -324,7 +472,8 @@ class AtariAIRL(TfObject):
                     self.act_t: acts,
                     self.obs_t: obs,
                     self.nobs_t: obs_next,
-                    self.lprobs: path_probs
+                    self.lprobs: path_probs,
+                    self.train_time: False
                 }
             )
             score, _ = self._process_discrim_output(scores)
@@ -333,7 +482,8 @@ class AtariAIRL(TfObject):
             reward = tf.get_default_session().run(
                 self.reward, feed_dict={
                     self.act_t: acts,
-                    self.obs_t: self.modify_obs(obs)
+                    self.obs_t: self.modify_obs(obs),
+                    self.train_time: False
                 }
             )
             score = reward[:, 0]
