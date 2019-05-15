@@ -79,6 +79,10 @@ class ScoreConfiguration(Configuration):
         rescale_type=None
     )
 
+    @property
+    def prepare_random_batch(self):
+        return self.mean_type is not None and 'random' in self.mean_type
+
 
 class DiscriminatorConfiguration(Configuration):
     default_values = dict(
@@ -104,6 +108,13 @@ class ScoreProcessor:
         self.config = config
         self.random_buffer = None
         self.discriminator = discriminator
+        self.random_mean = None
+        self.expert_mean = None
+        self.policy_mean = None
+        self.policy_std = None
+
+        self.expert_mean_buffer = []
+        self.policy_score_buffer = []
 
     @property
     def score_tensor(self) -> tf.Tensor:
@@ -130,19 +141,58 @@ class ScoreProcessor:
 
         return scores
 
-    def train_itr(self, *, expert_scores=None, policy_scores=None) -> None:
-        pass
+    def train_itr(self, *, expert_scores, policy_scores) -> None:
+        self.expert_mean_buffer.append(
+            np.mean(self._process_scores(expert_scores))
+        )
+        self.policy_score_buffer.extend(
+            self._process_scores(policy_scores)
+        )
 
     def finalize_train_step(self, logger=None) -> None:
+        if self.config.prepare_random_batch:
+            batch_size = 1024
+            nobs_batch, obs_batch, act_batch = \
+                self.discriminator.random_buffer.sample_batch(
+                    'next_obs',
+                    'obs',
+                    'acts',
+                    batch_size=batch_size,
+                    modify_obs=self.discriminator.modify_obs,
+                    one_hot_acts_to_dim=self.discriminator.dU
+                )
+
+            lprobs_batch = -np.log(self.discriminator.dU) * np.ones((batch_size, 1))
+
+            random_scores = self.eval(
+                obs=obs_batch,
+                next_obs=nobs_batch,
+                acts=act_batch,
+                lprobs=lprobs_batch,
+                rescale=False
+            )
+            self.random_mean = np.mean(random_scores)
+
+
+        self.expert_mean = np.mean(self.expert_mean_buffer)
+        self.policy_mean = np.mean(self.policy_score_buffer)
+        self.policy_std = np.std(self.policy_score_buffer)
+
+        self.expert_mean_buffer = []
+        self.policy_score_buffer = []
         if logger:
-            pass
+            logger.logkv("Random Mean", self.random_mean)
+            logger.logkv("Expert Mean", self.expert_mean)
+            logger.logkv("Policy Mean", self.policy_mean)
+            logger.logkv("Policy std", self.policy_std)
 
     def eval(
             self, *,
             obs: np.ndarray,
             acts: np.ndarray,
             next_obs: Optional[np.ndarray]=None,
-            lprobs: Optional[np.ndarray]=None
+            lprobs: Optional[np.ndarray]=None,
+            rescale=True
     ) -> np.ndarray:
         modify_obs = self.discriminator.modify_obs
         scores = self._process_scores(
@@ -157,6 +207,9 @@ class ScoreProcessor:
                 }
             )
         )
+        if rescale and self.config.mean_type is not None:
+            mean = min(self.random_mean, self.policy_mean)
+            scores = (scores - mean) / self.policy_std
         return scores
 
 
@@ -500,6 +553,8 @@ class AtariAIRL(TfObject):
         mean_loss = np.mean(stacker.loss)
         mean_acc = np.mean(stacker.accuracy)
         mean_score = np.mean(stacker.score)
+
+        self.score_manager.finalize_train_step(logger=logger)
 
         if logger:
             logger.logkv('GCLDiscrimLoss', mean_loss)

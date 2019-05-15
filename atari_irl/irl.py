@@ -83,36 +83,58 @@ class IRL:
             skip_discriminator()
             self.train_policy = False
 
-        self.discriminator = None if not build_discriminator else discriminators.AtariAIRL(
-            env=self.env,
-            expert_buffer=experts.ExpertBuffer.from_trajectories(trajectories),
-            config=discriminators.DiscriminatorConfiguration(
-                score_discrim=score_discrim,
-                max_itrs=100,
-                state_only=state_only,
-                information_bottleneck_bits=information_bottleneck_bits,
-                reward_change_penalty=reward_change_penalty
-            )
-        )
-
-        self.T = 50000000
-
         policy_type = policy_args.pop('policy_type')
         make_policy_fn = {
             'Q': policies.easy_init_Q,
             'PPO2': policies.easy_init_PPO,
             'Random': make_random_policy
         }[policy_type]
-        self.policy = make_policy_fn(
-            env=self.env,
-            **policy_args
-        )
 
         self.batch_t = 128 if policy_type == 'PPO2' else 1
         self.fixed_buffer_ratio = fixed_buffer_ratio
         if policy_type == 'Q':
             self.fixed_buffer_ratio *= 128
             policy_args['learning_starts'] = self.fixed_buffer_ratio
+
+        self.policy = make_policy_fn(
+            env=self.env,
+            **policy_args
+        )
+
+        discrim_config = discriminators.DiscriminatorConfiguration(
+            max_itrs=100,
+            state_only=state_only,
+            information_bottleneck_bits=information_bottleneck_bits,
+            reward_change_penalty=reward_change_penalty
+        )
+        random_buffer = None
+        if discrim_config.score_config.prepare_random_batch:
+            random_sampler = policies.Sampler(
+                env=self.env,
+                policy=make_random_policy(env=env)
+            )
+            random_buffer = buffers.ViewBuffer[self.policy.InfoClass](
+                discriminator=None,
+                policy=random_sampler.policy,
+                policy_info_class=RandomPolicy.InfoClass,
+                maxlen=4,
+                overwrite_rewards=False
+            )
+            self.env.reset()
+            for i in range(4):
+                random_buffer.add_batch(
+                    random_sampler.sample_batch(self.batch_t)
+                )
+            self.env.reset()
+
+        self.discriminator = None if not build_discriminator else discriminators.AtariAIRL(
+            env=self.env,
+            random_buffer=random_buffer,
+            expert_buffer=experts.ExpertBuffer.from_trajectories(trajectories),
+            config=discrim_config
+        )
+
+        self.T = 50000000
 
         self.buffer = buffers.ViewBuffer[self.policy.InfoClass](
             discriminator=self.discriminator,
@@ -250,7 +272,7 @@ def main(
         one_hot_code=False,
         num_envs=num_envs
     )
-    ncpu=32
+    ncpu=64
     config = tf.ConfigProto(
         allow_soft_placement=True,
         intra_op_parallelism_threads=ncpu,
