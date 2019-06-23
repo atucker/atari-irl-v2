@@ -35,6 +35,9 @@ class RandomPolicy(policies.Policy):
             ])
         )
 
+    def get_a_logprobs(self, obs: np.ndarray, acts: np.ndarray) -> np.ndarray:
+        return -np.log(self.config.action_space.n) * np.ones(len(obs))
+
     def train(self, buffer: Buffer, i: int) -> None:
         pass
 
@@ -52,12 +55,16 @@ class IRL:
             trajectories,
             policy_args,
             ablation=None,
-            score_discrim=True,
             fixed_buffer_ratio=32,
             buffer_size=None,
             state_only=False,
-            information_bottleneck_bits=None,
-            reward_change_penalty=None
+            information_bottleneck_nats=None,
+            reward_change_penalty=None,
+            reward_change_constraint=None,
+            transfer_function='positive',
+            mean_type=None,
+            rescale_type=None,
+            args=None
     ):
         self.env = env
 
@@ -104,8 +111,27 @@ class IRL:
         discrim_config = discriminators.DiscriminatorConfiguration(
             max_itrs=100,
             state_only=state_only,
-            information_bottleneck_bits=information_bottleneck_bits,
-            reward_change_penalty=reward_change_penalty
+            score_config=discriminators.ScoreConfiguration(
+                transfer_function=transfer_function,
+                mean_type=mean_type,
+                rescale_type=rescale_type
+            ),
+            bottleneck_config=discriminators.InfoBottleneckConfig(
+                enabled=information_bottleneck_nats is not None,
+                information_bottleneck_nats=information_bottleneck_nats
+            ),
+            reward_change_config=discriminators.RewardChangeConfig(
+                enabled=(
+                    reward_change_penalty is not None or
+                    reward_change_constraint is not None
+                ),
+                reward_change_penalty=reward_change_penalty,
+                reward_change_constraint=reward_change_constraint,
+            ),
+            gradient_penalty_config=discriminators.GradientPenaltyConfig(
+                enabled=args.gradient_penalty is not None,
+                gradient_penalty=args.gradient_penalty
+            )
         )
         random_buffer = None
         if discrim_config.score_config.prepare_random_batch:
@@ -117,11 +143,11 @@ class IRL:
                 discriminator=None,
                 policy=random_sampler.policy,
                 policy_info_class=RandomPolicy.InfoClass,
-                maxlen=4,
+                maxlen=32,
                 overwrite_rewards=False
             )
             self.env.reset()
-            for i in range(4):
+            for i in range(32):
                 random_buffer.add_batch(
                     random_sampler.sample_batch(self.batch_t)
                 )
@@ -217,6 +243,13 @@ class IRL:
 
         if self.train_discriminator and train_discriminator_now:
             with utils.light_log_mem("discriminator train step", log_memory):
+                if self.discriminator.config.score_config.prepare_random_batch:
+                    self.discriminator.train_step(
+                        buffer=self.discriminator.random_buffer,
+                        policy=self.discriminator.random_buffer.policy,
+                        itr=i,
+                        logger=None
+                    )
                 self.discriminator.train_step(
                     buffer=self.buffer,
                     policy=self.policy,
@@ -228,6 +261,20 @@ class IRL:
             self.log_performance(i)
             with utils.light_log_mem("garbage collection", log_memory):
                 gc.collect()
+
+    def save(self, i=None):
+        def _save():
+            with self.cache.context('irl_runner'):
+                with self.cache.context('policy'):
+                    self.policy.store_in_cache(self.cache)
+                with self.cache.context('discriminator'):
+                    self.discriminator.store_in_cache(self.cache)
+
+        if i is not None:
+            with self.cache.context(str(i)):
+                _save()
+        else:
+            _save()
 
     def train(self):
         log_freq = 1
@@ -243,6 +290,9 @@ class IRL:
                 log_now=i % log_freq == 0
             )
 
+            #if i % self.fixed_buffer_ratio * 10 == 0:
+            #    self.save(i)
+
 def main(
         *,
         env_name='PLECatcher-v0',
@@ -251,7 +301,6 @@ def main(
         num_trajectories=10,
         use_trajectories_file='',
         use_expert_file='',
-        score_discrim=True,
         update_ratio=32,
         buffer_size=None,
         seed=0,
@@ -261,8 +310,13 @@ def main(
         state_only=False,
         num_envs=8,
         load_policy_initialization=None,
-        information_bottleneck_bits=None,
-        reward_change_penalty=None
+        information_bottleneck_nats=None,
+        reward_change_penalty=None,
+        reward_change_constraint=None,
+        transfer_function='positive',
+        mean_type=None,
+        rescale_type=None,
+        args=None
 ):
     print(f"Running process {os.getpid()}")
     cache = experiments.FilesystemCache('test_cache')
@@ -351,12 +405,16 @@ def main(
                         cache=cache,
                         trajectories=trajectories,
                         policy_args=policy_args,
-                        score_discrim=score_discrim,
                         fixed_buffer_ratio=update_ratio,
                         buffer_size=buffer_size,
                         state_only=state_only,
-                        information_bottleneck_bits=information_bottleneck_bits,
+                        information_bottleneck_nats=information_bottleneck_nats,
                         reward_change_penalty=reward_change_penalty,
+                        reward_change_constraint=reward_change_constraint,
+                        transfer_function=transfer_function,
+                        mean_type=mean_type,
+                        rescale_type=rescale_type,
+                        args=args,
                     )
                     irl_runner.train()
 

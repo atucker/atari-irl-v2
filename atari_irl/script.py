@@ -12,7 +12,6 @@ parser.add_argument('--imitator_total_timesteps', type=float, default=100e6)
 parser.add_argument('--num_trajectories', type=int, default=10)
 parser.add_argument('--use_trajectories_file', type=str, default='')
 parser.add_argument('--use_expert_file', type=str, default='')
-parser.add_argument('--score_discrim', type=bool, default=True)
 parser.add_argument('--update_ratio', type=int, default=32)
 parser.add_argument('--buffer_size', type=int, default=None)
 parser.add_argument('--seed', type=int, default=0)
@@ -25,8 +24,12 @@ parser.add_argument('--no-irl', dest='do_irl', action='store_false')
 parser.set_defaults(do_irl=True)
 parser.add_argument('--num_envs', type=int, default=8)
 parser.add_argument('--load_policy_initialization', type=str, default=None)
-parser.add_argument('--information_bottleneck_bits', type=float, default=None)
+parser.add_argument('--information_bottleneck_nats', type=float, default=None)
 parser.add_argument('--reward_change_penalty', type=float, default=None)
+parser.add_argument('--reward_change_constraint', type=float, default=None)
+parser.add_argument('--gradient_penalty', type=float, default=None)
+parser.add_argument('--transfer_function', type=str, default='positive')
+parser.add_argument('--mean_type', type=str, default=None)
 
 args = parser.parse_args()
 
@@ -39,7 +42,6 @@ main(
     num_trajectories=args.num_trajectories,
     use_trajectories_file=args.use_trajectories_file,
     use_expert_file=args.use_expert_file,
-    score_discrim=args.score_discrim,
     update_ratio=args.update_ratio,
     buffer_size=args.buffer_size,
     seed=args.seed,
@@ -48,6 +50,10 @@ main(
     do_irl=args.do_irl,
     state_only=args.state_only,
     num_envs=args.num_envs,
-    information_bottleneck_bits=args.information_bottleneck_bits,
+    information_bottleneck_nats=args.information_bottleneck_nats,
     reward_change_penalty=args.reward_change_penalty,
+    reward_change_constraint=args.reward_change_constraint,
+    transfer_function=args.transfer_function,
+    mean_type=args.mean_type,
+    args=args
 )

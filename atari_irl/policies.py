@@ -59,7 +59,7 @@ class Policy(TfObject):
     def get_actions(self, obs_batch: Observations) -> PolicyInfo:
         raise NotImplemented
 
-    def get_a_logprobs(self, obs_batch: Observations) -> np.ndarray:
+    def get_a_logprobs(self, obs: np.ndarray, acts: np.ndarray) -> np.ndarray:
         raise NotImplemented
 
     def train_step(
@@ -136,6 +136,7 @@ class PolicyTrainer(TfObjectTrainer[Policy]):
                 )
                 stored_i, _ = self.restore_training_checkpoint(cache, itr=i)
                 assert stored_i == i
+
 
 class Sampler:
     def __init__(self, env: VecEnv, policy: Policy) -> None:

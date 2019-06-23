@@ -89,13 +89,15 @@ class ExpertBuffer(Buffer[PolicyInfo]):
         next_obs[dones[:, 0]] *= 0
         next_acts[dones[:, 0]] *= 0
 
+        """
         check = ((obs[1:] - next_obs[:-1]) ** 2).sum(axis=(1, 2, 3))
         for t in range(len(check)):
             if dones[t]:
                 assert check[t] != 0
             else:
                 assert check[t] == 0
-                
+        """
+
         return ExpertBuffer(
             obs=obs, next_obs=next_obs,
             acts=acts, next_acts=next_acts,
