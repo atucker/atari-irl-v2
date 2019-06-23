@@ -39,7 +39,7 @@ def dcgan_cnn(unscaled_images, **conv_kwargs):
     return ans
 
 
-def last_linear_hidden_layer(x, actions=None, d=512, **conv_kwargs):
+def last_linear_hidden_layer(x, config, actions=None, d=512, **conv_kwargs):
     h = dcgan_cnn(x, **conv_kwargs)
     activ = leaky_relu
 
@@ -49,19 +49,14 @@ def last_linear_hidden_layer(x, actions=None, d=512, **conv_kwargs):
     return activ('h_final', fc(h, 'fc1', nh=d, init_scale=np.sqrt(2)))
 
 
-def cnn_net(x, actions=None, dout=1, **conv_kwargs):
-    h_final = last_linear_hidden_layer(x=x, actions=actions, **conv_kwargs)
-    return fc(h_final, 'output', nh=dout, init_scale=np.sqrt(2))
-
-
 class ArchConfiguration(Configuration):
     default_values = dict(
-        network='cnn_net',
+        network='dcgan_cnn',
         arch_args={}
     )
 
     def create(self, inpt, **kwargs):
-        create_fn = {'cnn_net': cnn_net}[self.network]
+        create_fn = {'dcgan_cnn': dcgan_cnn}[self.network]
         return create_fn(inpt, **kwargs, **self.arch_args)
 
     @property
@@ -502,23 +497,34 @@ class AtariAIRL(TfObject):
 
         TfObject.__init__(self, config, scope_name=self.config.name)
 
-    def _build_mu_sigma(self, x, actions=None, reuse=False):
+    def _build_mu_sigma(self, x, config: ArchConfiguration, actions=None, reuse=False):
         with tf.variable_scope('mu', reuse=reuse):
-            mu = last_linear_hidden_layer(x, actions=actions, d=self.config.hidden_d)
+            mu = last_linear_hidden_layer(x, config=config, actions=actions, d=self.config.hidden_d)
         with tf.variable_scope('sigma', reuse=reuse):
-            sigma = last_linear_hidden_layer(x, actions=actions, d = self.config.hidden_d)
+            sigma = last_linear_hidden_layer(x, config=config, actions=actions, d = self.config.hidden_d)
         return mu, sigma
 
     def _setup_reward_and_shaping_functions(self, *, obs_t, act_t, nobs_t, train_time):
         with tf.variable_scope('h'):
-            h_mu, h_sigma = self._build_mu_sigma(obs_t)
+            h_mu, h_sigma = self._build_mu_sigma(
+                obs_t,
+                config=self.config.value_arch
+            )
         with tf.variable_scope('h', reuse=True):
-            h_next_mu, h_next_sigma = self._build_mu_sigma(nobs_t, reuse=True)
+            h_next_mu, h_next_sigma = self._build_mu_sigma(
+                nobs_t,
+                config=self.config.value_arch,
+                reuse=True
+            )
 
         if not self.config.fuse_archs:
             with tf.variable_scope('g'):
                 actions = None if self.config.state_only else act_t
-                g_mu, g_sigma = self._build_mu_sigma(obs_t, actions=actions)
+                g_mu, g_sigma = self._build_mu_sigma(
+                    obs_t,
+                    config=self.config.reward_arch,
+                    actions=actions
+                )
 
             mu = tf.concat([g_mu, h_mu, h_next_mu], axis=1)
             sigma = tf.concat([g_sigma, h_sigma, h_next_sigma], axis=1)
