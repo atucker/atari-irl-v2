@@ -105,7 +105,11 @@ class FilesystemCache(Cache):
         joblib.dump(value, self.filename(key))
 
     def context_item_keys(self) -> List[str]:
-        return os.listdir(os.path.join(self.base_dir, '/'.join(self.context_stack)))
+        path = os.path.join(self.base_dir, '/'.join(self.context_stack))
+        if os.path.exists(path):
+            return os.listdir(path)
+        else:
+            return []
 
 
 class Configuration:
