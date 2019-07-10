@@ -40,7 +40,8 @@ def dcgan_cnn(unscaled_images, **conv_kwargs):
 
 
 def last_linear_hidden_layer(x, config, actions=None, d=512, **conv_kwargs):
-    h = dcgan_cnn(x, **conv_kwargs)
+    h = config.create(x, **conv_kwargs)
+
     activ = leaky_relu
 
     if actions is not None:
@@ -56,7 +57,10 @@ class ArchConfiguration(Configuration):
     )
 
     def create(self, inpt, **kwargs):
-        create_fn = {'dcgan_cnn': dcgan_cnn}[self.network]
+        create_fn = {
+            'dcgan_cnn': dcgan_cnn,
+            'mlp': lambda x: x
+        }[self.network]
         return create_fn(inpt, **kwargs, **self.arch_args)
 
     @property
