@@ -28,7 +28,7 @@ mpi4py==3.0.0
 mujoco-py==1.50.1.68
 numpy==1.15.4
 opencv-python==3.4.5.20
-Pillow==5.3.0
+Pillow==6.2.0
 -e git+https://github.com/ntasfi/PyGame-Learning-Environment@cbdc53630b50fe6cffe950ae6b89c442f0a6eaae#egg=ple
 progressbar2==3.39.2
 protobuf==3.6.1
